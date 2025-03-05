@@ -1,6 +1,5 @@
 import telebot
 from telebot.types import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
-import time
 from threading import Timer
 from keys import *
 
@@ -15,22 +14,28 @@ faculty = ["علوم پایه", "مکانیک", "عمران", "شیمی", "صن�
 faculty_markup = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
 faculty_markup.add(*faculty)
 
-professor = []
+admins = ["درخواستی ها", "ردشده ها"]
+admins_markup = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
+admins_markup.add(*admins)
 
+pending_requests = []
 user_states = {}
-
-def timeout_message(chat_id):
-    if user_states.get(chat_id) == "waiting_for_message":
-        bot.send_message(chat_id, """زمان شما برای ارسال پیام تمام شد. لطفاً از قبل پیام خود را آماده کنید و سپس درخواست دهید.
-برای شروع مجدد روی /start کلیک کنید.""")
-        del user_states[chat_id] 
 
 #____________________________________HANDLERS_____________________________________________
 
 @bot.message_handler(commands=["admin"])
 def admin(message):
     if message.from_user.id in [112911597, 101108999]:
-        bot.send_message(message.chat.id, "سلام ادمین عزیز! چه کاری داریم؟", reply_markup=keyboard_markup)
+        if len(pending_requests) == 0:
+            bot.send_message(message.chat.id, "هیچ درخواستی برای تایید وجود ندارد.")
+        else:
+            for idx, request in enumerate(pending_requests):
+                markup = InlineKeyboardMarkup()
+                accept_button = InlineKeyboardButton("✅ تایید", callback_data=f"accept_{idx}")
+                reject_button = InlineKeyboardButton("❌ رد", callback_data=f"reject_{idx}")
+                markup.add(accept_button, reject_button)
+                
+                bot.send_message(message.chat.id, f"درخواست از کاربر {request['user_id']}:\n{request['message']}", reply_markup=markup)
 
 @bot.message_handler(commands=["start"])
 def send_welcome(message):
@@ -48,20 +53,16 @@ def handle_request(message, hashtag, instruction_text):
 def process_user_message(message):
     chat_id = message.chat.id
     user_message = message.text
-    
     hashtag = user_states[chat_id]["hashtag"]
     
-    modified_message = f"""{hashtag}\n{user_message}"""
+    pending_requests.append({
+        "user_id": chat_id,
+        "message": f"{hashtag}\n{user_message}",
+        "approved": False
+    })
     
-    bot.reply_to(message, modified_message)
-    
-    bot.send_message(chat_id, '''درخواست شما با موفقیت برای ادمین ارسال شد. در صورت تایید در کانال منتشر می‌شود.
-در صورت عدم تایید، دلیل رد شدن به شما اطلاع داده خواهد شد.
-                         
-در صورت مشاهده هرگونه مشکل، لطفاً به آیدی @Pooyan013 پیام دهید.''')
-    
-    if chat_id in user_states:
-        del user_states[chat_id]
+    bot.reply_to(message, "درخواست شما با موفقیت برای ادمین ارسال شد. در صورت تایید در کانال منتشر می‌شود.")
+    del user_states[chat_id]
 
 @bot.message_handler()
 def main(message):
@@ -78,7 +79,7 @@ def main(message):
         handle_request(message, "#گمشده_پیدا_شده", text_gomshode)
         
     elif message.text == "📚فایل‌های درسی":
-        bot.send_message(message.chat.id, "فایل‌های درسی")
+        bot.send_message(message.chat.id, "فایل‌های درسی", reply_markup=faculty_markup)
         
     elif message.text == "📩 اطلاعات اساتید":
         bot.send_message(message.chat.id, "در مورد استاد کدوم دانشکده میخوای اطلاعات بدم؟", reply_markup=faculty_markup)
@@ -89,5 +90,34 @@ def main(message):
     elif message.text == "📞 ارتباط با ادمین":
         bot.send_message(message.chat.id, text_admin)
 
+@bot.callback_query_handler(func=lambda call: call.data.startswith("accept_") or call.data.startswith("reject_"))
+def handle_admin_action(call):
+    action, idx = call.data.split("_")
+    idx = int(idx)
+    request = pending_requests[idx]
+    
+    if action == "accept":
+        bot.send_message(channel_id, f"{request['message']}")
+        bot.answer_callback_query(call.id, "درخواست تایید شد و به کانال ارسال شد.")
+        pending_requests.pop(idx)  
+    elif action == "reject":
+        bot.send_message(call.message.chat.id, "لطفا دلیل رد شدن را وارد کنید:")
+        bot.register_next_step_handler(call.message, lambda msg: process_rejection(msg, idx))
+
+def process_rejection(message, idx):
+    reason = message.text
+    request = pending_requests[idx]
+    user_id = request["user_id"]
+    
+    bot.send_message(user_id, f"درخواست شما رد شد. دلیل:\n{reason}")
+    bot.send_message(message.chat.id, "درخواست با موفقیت رد شد.")
+    pending_requests.pop(idx) 
+
+
+def timeout_message(chat_id):
+    if user_states.get(chat_id) == "waiting_for_message":
+        bot.send_message(chat_id, """زمان شما برای ارسال پیام تمام شد. لطفاً از قبل پیام خود را آماده کنید و سپس درخواست دهید.
+برای شروع مجدد روی /start کلیک کنید.""")
+        del user_states[chat_id]
 
 bot.infinity_polling()
