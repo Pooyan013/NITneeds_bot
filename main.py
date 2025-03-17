@@ -2,6 +2,7 @@ import telebot
 from telebot.types import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
 from threading import Timer
 from keys import *
+from database import add_or_update_user, get_all_users
 
 bot = telebot.TeleBot(hash)
 channel_username = "@test_niazmandiha"  
@@ -71,10 +72,37 @@ def admin(message):
             bot.send_message(message.chat.id, f"درخواست از کاربر {request['user_id']}:\n{request['message']}", reply_markup=markup)
 
 
+@bot.message_handler(commands=["broadcast"])
+def broadcast_message(message):
+    if message.from_user.id == 112911597:  
+        bot.send_message(message.chat.id, "لطفاً پیام خود را برای ارسال به همه کاربران وارد کنید:")
+        bot.register_next_step_handler(message, send_broadcast)
+    else:
+        bot.send_message(message.chat.id, "شما دسترسی لازم برای ارسال پیام به کاربران را ندارید.")
+
+def send_broadcast(message):
+    users = get_all_users()
+    for user in users:
+        try:
+            bot.send_message(user.user_id, message.text)
+        except Exception as e:
+            print(f"خطا در ارسال پیام به کاربر {user.user_id}: {e}")
+    
+    bot.send_message(message.chat.id, "پیام شما به تمام کاربران ارسال شد.")
+
+
 @bot.message_handler(commands=["start"])
 def send_welcome(message):
-    bot.send_message(message.chat.id, f"""سلام به ربات نیازمندی‌ها خوش اومدی 🩷
+    chat_id = message.chat.id
+    username = message.from_user.username
+    full_name = message.from_user.first_name + " " + (message.from_user.last_name or "")
+    
+    # ذخیره یا به‌روزرسانی اطلاعات کاربر
+    add_or_update_user(chat_id, username, full_name)
+    
+    bot.send_message(chat_id, f"""سلام به ربات نیازمندی‌ها خوش اومدی 🩷
 چطوری میتونم بهت کمک کنم؟""", reply_markup=keyboard_markup)
+
 
 def handle_request(message, hashtag, instruction_text):
     chat_id = message.chat.id
