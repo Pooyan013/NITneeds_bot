@@ -4,6 +4,7 @@ from threading import Timer
 from keys import *
 
 bot = telebot.TeleBot(hash)
+channel_username = "@test_niazmandiha"  
 
 #___________________________________BUTTONS________________________________________________
 buttons = ["📎 درخواستی", "🏷 فروشی", "❓پرسش", "🔍 گمشده / پیدا شده", "📚فایل‌های درسی", "📩 اطلاعات اساتید", "📈 تبلیغات", "📞 ارتباط با ادمین"]
@@ -21,21 +22,54 @@ admins_markup.add(*admins)
 pending_requests = []
 user_states = {}
 
+#____________________________________Verfication FUNCTION________________________________________
+
+def check_channel_membership(user_id):
+    try:
+        status = bot.get_chat_member(channel_username, user_id).status
+        return status in ['member', 'administrator', 'creator']
+    except Exception as e:
+        return False
+
+def send_subscription_prompt(chat_id):
+    markup = InlineKeyboardMarkup()
+    subscribe_button = InlineKeyboardButton("🔗 عضویت در کانال", url="t.me/test_niazmandiha")
+    markup.add(subscribe_button)
+    bot.send_message(chat_id, "برای استفاده از ربات ابتدا باید عضو کانال شوید.", reply_markup=markup)
+
 #____________________________________HANDLERS_____________________________________________
+
+admin_roles = {
+    112911597: "all", 
+    101108999: "درخواستی",  
+    102222333: "فروشی",
+}
 
 @bot.message_handler(commands=["admin"])
 def admin(message):
-    if message.from_user.id in [112911597, 101108999]:
-        if len(pending_requests) == 0:
-            bot.send_message(message.chat.id, "هیچ درخواستی برای تایید وجود ندارد.")
-        else:
-            for idx, request in enumerate(pending_requests):
-                markup = InlineKeyboardMarkup()
-                accept_button = InlineKeyboardButton("✅ تایید", callback_data=f"accept_{idx}")
-                reject_button = InlineKeyboardButton("❌ رد", callback_data=f"reject_{idx}")
-                markup.add(accept_button, reject_button)
-                
-                bot.send_message(message.chat.id, f"درخواست از کاربر {request['user_id']}:\n{request['message']}", reply_markup=markup)
+    admin_id = message.from_user.id
+    admin_role = admin_roles.get(admin_id, None)
+
+    if admin_role is None:
+        bot.send_message(message.chat.id, "شما دسترسی لازم برای مشاهده درخواست‌ها را ندارید.")
+        return
+
+    if admin_role == "all":
+        relevant_requests = pending_requests
+    else:
+        relevant_requests = [req for req in pending_requests if req["hashtag"] == f"#{admin_role}"]
+
+    if len(relevant_requests) == 0:
+        bot.send_message(message.chat.id, "هیچ درخواستی برای تایید وجود ندارد.")
+    else:
+        for idx, request in enumerate(relevant_requests):
+            markup = InlineKeyboardMarkup()
+            accept_button = InlineKeyboardButton("✅ تایید", callback_data=f"accept_{idx}")
+            reject_button = InlineKeyboardButton("❌ رد", callback_data=f"reject_{idx}")
+            markup.add(accept_button, reject_button)
+            
+            bot.send_message(message.chat.id, f"درخواست از کاربر {request['user_id']}:\n{request['message']}", reply_markup=markup)
+
 
 @bot.message_handler(commands=["start"])
 def send_welcome(message):
@@ -44,10 +78,13 @@ def send_welcome(message):
 
 def handle_request(message, hashtag, instruction_text):
     chat_id = message.chat.id
-    bot.send_message(chat_id, instruction_text)
-    user_states[chat_id] = {"state": "waiting_for_message", "hashtag": hashtag}
-    timer = Timer(120, timeout_message, [chat_id])
-    timer.start()
+    if check_channel_membership(chat_id):
+        bot.send_message(chat_id, instruction_text)
+        user_states[chat_id] = {"state": "waiting_for_message", "hashtag": hashtag}
+        timer = Timer(120, timeout_message, [chat_id])
+        timer.start()
+    else:
+        send_subscription_prompt(chat_id)
 
 @bot.message_handler(func=lambda message: message.chat.id in user_states and user_states[message.chat.id]["state"] == "waiting_for_message")
 def process_user_message(message):
@@ -58,11 +95,13 @@ def process_user_message(message):
     pending_requests.append({
         "user_id": chat_id,
         "message": f"{hashtag}\n{user_message}",
+        "hashtag": hashtag,  
         "approved": False
     })
     
     bot.reply_to(message, "درخواست شما با موفقیت برای ادمین ارسال شد. در صورت تایید در کانال منتشر می‌شود.")
     del user_states[chat_id]
+
 
 @bot.message_handler()
 def main(message):
@@ -112,7 +151,6 @@ def process_rejection(message, idx):
     bot.send_message(user_id, f"درخواست شما رد شد. دلیل:\n{reason}")
     bot.send_message(message.chat.id, "درخواست با موفقیت رد شد.")
     pending_requests.pop(idx) 
-
 
 def timeout_message(chat_id):
     if user_states.get(chat_id) == "waiting_for_message":
