@@ -3,12 +3,13 @@ from telebot.types import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeybo
 from threading import Timer
 from keys import *
 from database import add_or_update_user, get_all_users
+import time
 
 bot = telebot.TeleBot(hash)
 channel_username = "@test_niazmandiha"  
 
 #___________________________________BUTTONS________________________________________________
-buttons = ["📎 درخواستی", "🏷 فروشی", "❓پرسش", "🔍 گمشده / پیدا شده", "📚فایل‌های درسی", "📩 اطلاعات اساتید", "📈 تبلیغات", "📞 ارتباط با ادمین"]
+buttons = ["📎 درخواستی", "🏷 فروشی", "❓پرسش", "🔍 گمشده / پیدا شده", "📚فایل‌های درسی", "📩 اطلاعات اساتید", "📈 تبلیغات", "📞 ارتباط با ادمین", "🔙 بازگشت"]
 keyboard_markup = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
 keyboard_markup.add(*buttons)
 
@@ -22,6 +23,7 @@ admins_markup.add(*admins)
 
 pending_requests = []
 user_states = {}
+last_request_times = {}
 
 #____________________________________Verfication FUNCTION________________________________________
 
@@ -31,19 +33,31 @@ def check_channel_membership(user_id):
         return status in ['member', 'administrator', 'creator']
     except Exception as e:
         return False
-
+    
 def send_subscription_prompt(chat_id):
     markup = InlineKeyboardMarkup()
     subscribe_button = InlineKeyboardButton("🔗 عضویت در کانال", url="t.me/test_niazmandiha")
-    markup.add(subscribe_button)
+    check_subscription_button = InlineKeyboardButton("✔️ تایید عضویت", callback_data="check_subscription")
+    markup.add(subscribe_button, check_subscription_button)
     bot.send_message(chat_id, "برای استفاده از ربات ابتدا باید عضو کانال شوید.", reply_markup=markup)
+
+@bot.callback_query_handler(func=lambda call: call.data == "check_subscription")
+def check_subscription(call):
+    chat_id = call.message.chat.id
+    if check_channel_membership(chat_id):
+        bot.answer_callback_query(call.id, "عضویت شما تایید شد! حالا می‌توانید از ربات استفاده کنید.")
+        bot.send_message(chat_id, "به صفحه اصلی بازگشتید.", reply_markup=keyboard_markup)
+    else:
+        bot.answer_callback_query(call.id, "هنوز عضو کانال نیستید. لطفاً ابتدا عضو شوید.")
 
 #____________________________________HANDLERS_____________________________________________
 
 admin_roles = {
     112911597: "all", 
     101108999: "درخواستی",  
-    102222333: "فروشی",
+    101108999: "فروشی",
+    101108999: "پرسش",
+    101108999: "گمشده_پیدا_شده",
 }
 
 @bot.message_handler(commands=["admin"])
@@ -69,8 +83,14 @@ def admin(message):
             reject_button = InlineKeyboardButton("❌ رد", callback_data=f"reject_{idx}")
             markup.add(accept_button, reject_button)
             
-            bot.send_message(message.chat.id, f"درخواست از کاربر {request['user_id']}:\n{request['message']}", reply_markup=markup)
+            user_info = bot.get_chat(request['user_id'])
+            username = user_info.username if user_info.username else f"کاربر {request['user_id']}"
+            
+            bot.send_message(message.chat.id, f"درخواست از {username}:\n{request['message']}", reply_markup=markup)
 
+@bot.message_handler(func=lambda message: message.text == "🔙 بازگشت")
+def back_to_main(message):
+    bot.send_message(message.chat.id, "به صفحه اصلی بازگشتید.", reply_markup=keyboard_markup)
 
 @bot.message_handler(commands=["broadcast"])
 def broadcast_message(message):
@@ -97,7 +117,6 @@ def send_welcome(message):
     username = message.from_user.username
     full_name = message.from_user.first_name + " " + (message.from_user.last_name or "")
     
-    # ذخیره یا به‌روزرسانی اطلاعات کاربر
     add_or_update_user(chat_id, username, full_name)
     
     bot.send_message(chat_id, f"""سلام به ربات نیازمندی‌ها خوش اومدی 🩷
@@ -106,9 +125,16 @@ def send_welcome(message):
 
 def handle_request(message, hashtag, instruction_text):
     chat_id = message.chat.id
+    
     if check_channel_membership(chat_id):
+        now = time.time()
+        if chat_id in last_request_times and now - last_request_times[chat_id] < 300:  
+            remaining_time = int(300 - (now - last_request_times[chat_id]))
+            bot.send_message(chat_id, f"لطفاً {remaining_time} ثانیه صبر کنید تا بتوانید درخواست جدید ارسال کنید.")
+            return
         bot.send_message(chat_id, instruction_text)
         user_states[chat_id] = {"state": "waiting_for_message", "hashtag": hashtag}
+        last_request_times[chat_id] = now  
         timer = Timer(120, timeout_message, [chat_id])
         timer.start()
     else:
