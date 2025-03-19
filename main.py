@@ -9,17 +9,21 @@ bot = telebot.TeleBot(hash)
 channel_username = "@test_niazmandiha"  
 
 #___________________________________BUTTONS________________________________________________
-buttons = ["📎 درخواستی", "🏷 فروشی", "❓پرسش", "🔍 گمشده / پیدا شده", "📚فایل‌های درسی", "📩 اطلاعات اساتید", "📈 تبلیغات", "📞 ارتباط با ادمین", "🔙 بازگشت"]
+buttons = [ "🏷 فروشی", "📎 درخواستی", "❓پرسش", "🔍 گمشده / پیدا شده", "📚فایل‌های درسی", "📩 اطلاعات اساتید", "📈 تبلیغات", "📞 ارتباط با ادمین",]
 keyboard_markup = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
 keyboard_markup.add(*buttons)
 
-faculty = ["علوم پایه", "مکانیک", "عمران", "شیمی", "صنایع و مواد", "برق و کامپیوتر"]
+faculty = ["علوم پایه", "مکانیک", "عمران", "شیمی", "صنایع و مواد", "برق و کامپیوتر", "🔙 بازگشت"]
 faculty_markup = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
 faculty_markup.add(*faculty)
 
 admins = ["درخواستی ها", "ردشده ها"]
 admins_markup = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
 admins_markup.add(*admins)
+
+back = ["🔙 بازگشت"]
+back_markup = ReplyKeyboardMarkup(resize_keyboard=True, row_width=1)
+back_markup.add(*back)
 
 pending_requests = []
 user_states = {}
@@ -54,10 +58,13 @@ def check_subscription(call):
 
 admin_roles = {
     112911597: "all", 
-    101108999: "درخواستی",  
-    101108999: "فروشی",
-    101108999: "پرسش",
-    101108999: "گمشده_پیدا_شده",
+    442513360: "all",
+    244143516: "all",
+    101108999: "all",
+    1751472873: "درخواستی",  
+    1172391323: "فروشی",
+    581500840: "پرسش",
+    5410322306: "گمشده_پیدا_شده",
 }
 
 @bot.message_handler(commands=["admin"])
@@ -90,7 +97,11 @@ def admin(message):
 
 @bot.message_handler(func=lambda message: message.text == "🔙 بازگشت")
 def back_to_main(message):
-    bot.send_message(message.chat.id, "به صفحه اصلی بازگشتید.", reply_markup=keyboard_markup)
+    chat_id = message.chat.id
+    if chat_id in user_states:
+        del user_states[chat_id] 
+    bot.send_message(chat_id, "به صفحه اصلی بازگشتید.", reply_markup=keyboard_markup)
+
 
 @bot.message_handler(commands=["broadcast"])
 def broadcast_message(message):
@@ -132,13 +143,15 @@ def handle_request(message, hashtag, instruction_text):
             remaining_time = int(300 - (now - last_request_times[chat_id]))
             bot.send_message(chat_id, f"لطفاً {remaining_time} ثانیه صبر کنید تا بتوانید درخواست جدید ارسال کنید.")
             return
-        bot.send_message(chat_id, instruction_text)
+        
+        bot.send_message(chat_id, instruction_text, reply_markup=back_markup)
         user_states[chat_id] = {"state": "waiting_for_message", "hashtag": hashtag}
         last_request_times[chat_id] = now  
         timer = Timer(120, timeout_message, [chat_id])
         timer.start()
     else:
         send_subscription_prompt(chat_id)
+
 
 @bot.message_handler(func=lambda message: message.chat.id in user_states and user_states[message.chat.id]["state"] == "waiting_for_message")
 def process_user_message(message):
@@ -159,7 +172,21 @@ def process_user_message(message):
 
 @bot.message_handler()
 def main(message):
-    if message.text == "📎 درخواستی":
+    chat_id = message.chat.id
+    if message.text in ["📚فایل‌های درسی", "📩 اطلاعات اساتید", "📈 تبلیغات", "📞 ارتباط با ادمین"]:
+        if check_channel_membership(chat_id):
+            if message.text == "📚فایل‌های درسی":
+                bot.send_message(chat_id, "فایل‌های درسی", reply_markup=faculty_markup)
+            elif message.text == "📩 اطلاعات اساتید":
+                bot.send_message(chat_id, "در مورد استاد کدوم دانشکده میخوای اطلاعات بدم؟", reply_markup=faculty_markup)
+            elif message.text == "📈 تبلیغات":
+                bot.send_message(chat_id, text_tablighat)
+            elif message.text == "📞 ارتباط با ادمین":
+                bot.send_message(chat_id, text_admin)
+        else:
+            send_subscription_prompt(chat_id)
+    
+    elif message.text == "📎 درخواستی":
         handle_request(message, "#درخواستی", text_darkhasti)
         
     elif message.text == "🏷 فروشی":
@@ -170,18 +197,7 @@ def main(message):
         
     elif message.text == "🔍 گمشده / پیدا شده":
         handle_request(message, "#گمشده_پیدا_شده", text_gomshode)
-        
-    elif message.text == "📚فایل‌های درسی":
-        bot.send_message(message.chat.id, "فایل‌های درسی", reply_markup=faculty_markup)
-        
-    elif message.text == "📩 اطلاعات اساتید":
-        bot.send_message(message.chat.id, "در مورد استاد کدوم دانشکده میخوای اطلاعات بدم؟", reply_markup=faculty_markup)
 
-    elif message.text == "📈 تبلیغات":
-        bot.send_message(message.chat.id, text_tablighat)
-
-    elif message.text == "📞 ارتباط با ادمین":
-        bot.send_message(message.chat.id, text_admin)
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("accept_") or call.data.startswith("reject_"))
 def handle_admin_action(call):
