@@ -2,7 +2,7 @@ from sqlalchemy import create_engine, Column, Integer, String
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 
-engine = create_engine('sqlite:///users.db', echo=True)
+engine = create_engine('sqlite:///users.db', echo=True, connect_args={'check_same_thread': False})
 Base = declarative_base()
 Session = sessionmaker(bind=engine)
 session = Session()
@@ -16,19 +16,26 @@ class User(Base):
     full_name = Column(String)
     usage_count = Column(Integer, default=0)
 
-
 Base.metadata.create_all(engine)
 
 def add_or_update_user(user_id, username, full_name):
-    user = session.query(User).filter_by(user_id=user_id).first()
+    try:
+        user = session.query(User).filter_by(user_id=user_id).first()
 
-    if user:
-        user.usage_count += 1
-    else:
-        user = User(user_id=user_id, username=username, full_name=full_name, usage_count=1)
-        session.add(user)
+        if user:
+            user.usage_count += 1
+        else:
+            user = User(user_id=user_id, username=username, full_name=full_name, usage_count=1)
+            session.add(user)
 
-    session.commit()
+        session.commit()
+    except Exception as e:
+        session.rollback()
+        print(f"An error occurred: {e}")
 
 def get_all_users():
-    return session.query(User).all()
+    try:
+        return session.query(User).all()
+    except Exception as e:
+        session.rollback()
+        print(f"An error occurred: {e}")

@@ -28,7 +28,7 @@ back_markup.add(*back)
 pending_requests = []
 user_states = {}
 last_request_times = {}
-
+timers = {} 
 #____________________________________Verfication FUNCTION________________________________________
 
 def check_channel_membership(user_id):
@@ -100,6 +100,11 @@ def back_to_main(message):
     chat_id = message.chat.id
     if chat_id in user_states:
         del user_states[chat_id] 
+        
+    if chat_id in timers:
+        timers[chat_id].cancel()
+        del timers[chat_id]
+    
     bot.send_message(chat_id, "به صفحه اصلی بازگشتید.", reply_markup=keyboard_markup)
 
 
@@ -147,8 +152,12 @@ def handle_request(message, hashtag, instruction_text):
         bot.send_message(chat_id, instruction_text, reply_markup=back_markup)
         user_states[chat_id] = {"state": "waiting_for_message", "hashtag": hashtag}
         last_request_times[chat_id] = now  
+        
+        if chat_id in timers:
+            timers[chat_id].cancel()  
         timer = Timer(120, timeout_message, [chat_id])
         timer.start()
+        timers[chat_id] = timer  
     else:
         send_subscription_prompt(chat_id)
 
