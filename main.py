@@ -6,10 +6,23 @@ from database import add_or_update_user, get_all_users
 import time
 
 bot = telebot.TeleBot(hash)
-channel_username = "@test_niazmandiha"  
+channel_username = "@nit_needs"  
 
 #___________________________________BUTTONS________________________________________________
-buttons = [ "🏷 فروشی", "📎 درخواستی", "❓پرسش", "🔍 گمشده / پیدا شده", "📚فایل‌های درسی", "📩 اطلاعات اساتید", "📈 تبلیغات", "📞 ارتباط با ادمین",]
+buttons = [
+    "🏷 فروشی", 
+    "📎 درخواستی", 
+    "❓پرسش", 
+    "📚فایل‌های درسی", 
+    "📩 اطلاعات اساتید", 
+    "📈 تبلیغات", 
+    "📞 ارتباط با ادمین", 
+    "🏡 همخونه", 
+    "🔍 گمشده", 
+    "🔎 پیدا شده"
+]
+keyboard_markup = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
+keyboard_markup.add(*buttons)
 keyboard_markup = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
 keyboard_markup.add(*buttons)
 
@@ -40,7 +53,7 @@ def check_channel_membership(user_id):
     
 def send_subscription_prompt(chat_id):
     markup = InlineKeyboardMarkup()
-    subscribe_button = InlineKeyboardButton("🔗 عضویت در کانال", url="t.me/test_niazmandiha")
+    subscribe_button = InlineKeyboardButton("🔗 عضویت در کانال", url="https://t.me/nit_needs")
     check_subscription_button = InlineKeyboardButton("✔️ تایید عضویت", callback_data="check_subscription")
     markup.add(subscribe_button, check_subscription_button)
     bot.send_message(chat_id, "برای استفاده از ربات ابتدا باید عضو کانال شوید.", reply_markup=markup)
@@ -64,7 +77,9 @@ admin_roles = {
     1751472873: "درخواستی",  
     1172391323: "فروشی",
     581500840: "پرسش",
-    5410322306: "گمشده_پیدا_شده",
+    5410322306: "گمشده", 
+    5410322306: "پیدا_شده",  
+    101108999: "همخونه",      
 }
 
 @bot.message_handler(commands=["admin"])
@@ -110,7 +125,7 @@ def back_to_main(message):
 
 @bot.message_handler(commands=["broadcast"])
 def broadcast_message(message):
-    if message.from_user.id == 112911597:  
+    if message.from_user.id == [112911597, 244143516]:  
         bot.send_message(message.chat.id, "لطفاً پیام خود را برای ارسال به همه کاربران وارد کنید:")
         bot.register_next_step_handler(message, send_broadcast)
     else:
@@ -144,22 +159,33 @@ def handle_request(message, hashtag, instruction_text):
     
     if check_channel_membership(chat_id):
         now = time.time()
-        if chat_id in last_request_times and now - last_request_times[chat_id] < 300:  
+        if chat_id in last_request_times and now - last_request_times[chat_id] < 300:
             remaining_time = int(300 - (now - last_request_times[chat_id]))
             bot.send_message(chat_id, f"لطفاً {remaining_time} ثانیه صبر کنید تا بتوانید درخواست جدید ارسال کنید.")
             return
         
         bot.send_message(chat_id, instruction_text, reply_markup=back_markup)
         user_states[chat_id] = {"state": "waiting_for_message", "hashtag": hashtag}
-        last_request_times[chat_id] = now  
-        
+        last_request_times[chat_id] = now
+
         if chat_id in timers:
-            timers[chat_id].cancel()  
+            timers[chat_id].cancel()
+        
         timer = Timer(120, timeout_message, [chat_id])
         timer.start()
-        timers[chat_id] = timer  
+        timers[chat_id] = timer
+
+        notification_timer = Timer(3600, notify_admin, [chat_id])
+        notification_timer.start()
     else:
         send_subscription_prompt(chat_id)
+
+def notify_admin(chat_id):
+    relevant_requests = [req for req in pending_requests if req["user_id"] == chat_id]
+    if len(relevant_requests) > 0:
+        for admin_id in admin_roles:
+            bot.send_message(admin_id, "درخواستی از کاربر بیش از یک ساعت است که بدون پاسخ باقی مانده است.")
+
 
 
 @bot.message_handler(func=lambda message: message.chat.id in user_states and user_states[message.chat.id]["state"] == "waiting_for_message")
@@ -204,8 +230,26 @@ def main(message):
     elif message.text == "❓پرسش":
         handle_request(message, "#پرسش", text_porsesh)
         
-    elif message.text == "🔍 گمشده / پیدا شده":
-        handle_request(message, "#گمشده_پیدا_شده", text_gomshode)
+    elif message.text == "🏡 همخونه":
+        handle_request(message, "#همخونه", text_hamkhoone)
+
+    elif message.text == "🔍 گمشده":
+        handle_request(message, "#گمشده", text_gomshode)
+
+    elif message.text == "🔎 پیدا شده":
+        handle_request(message, "#پیدا_شده", text_peyda_shode)
+
+@bot.message_handler(func=lambda message: message.text == "📩 اطلاعات اساتید")
+def handle_faculty_info(message):
+    if check_channel_membership(message.chat.id):
+        bot.send_message(message.chat.id, "در مورد استاد کدوم دانشکده میخوای اطلاعات بدم؟", reply_markup=faculty_markup)
+    else:
+        send_subscription_prompt(message.chat.id)
+
+
+@bot.message_handler(func=lambda message: message.text == "برق و کامپیوتر")
+def handle_electrical_faculty_info(message):
+    bot.send_message(message.chat.id, bargh_facility)
 
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("accept_") or call.data.startswith("reject_"))
