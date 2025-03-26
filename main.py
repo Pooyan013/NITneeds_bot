@@ -4,7 +4,7 @@ from threading import Timer
 from keys import *
 from database import add_or_update_user, get_all_users
 import time
-
+from hash import hash
 bot = telebot.TeleBot(hash)
 channel_username = "@nit_needs"  
 
