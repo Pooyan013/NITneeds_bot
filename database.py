@@ -1,11 +1,13 @@
 from sqlalchemy import create_engine, Column, Integer, String
-from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy.ext.declarative import declarative_base
 
-engine = create_engine('sqlite:///users.db', echo=True, connect_args={'check_same_thread': False})
+engine = create_engine('sqlite:///users.db', echo=False, connect_args={'check_same_thread': False})
 Base = declarative_base()
+
 Session = sessionmaker(bind=engine)
-session = Session()
+
+
 
 class User(Base):
     __tablename__ = 'users'
@@ -19,23 +21,35 @@ class User(Base):
 Base.metadata.create_all(engine)
 
 def add_or_update_user(user_id, username, full_name):
-    try:
-        user = session.query(User).filter_by(user_id=user_id).first()
+    """
+    Creates a new session for this transaction.
+    Adds a new user or updates an existing one.
+    """
+    with Session() as session:
+        try:
+            user = session.query(User).filter_by(user_id=user_id).first()
 
-        if user:
-            user.usage_count += 1
-        else:
-            user = User(user_id=user_id, username=username, full_name=full_name, usage_count=1)
-            session.add(user)
-
-        session.commit()
-    except Exception as e:
-        session.rollback()
-        print(f"An error occurred: {e}")
+            if user:
+                user.username = username
+                user.full_name = full_name
+                user.usage_count += 1
+            else:
+                user = User(user_id=user_id, username=username, full_name=full_name, usage_count=1)
+                session.add(user)
+            
+            session.commit()
+        except Exception as e:
+            session.rollback()
+            print(f"An error occurred: {e}")
 
 def get_all_users():
-    try:
-        return session.query(User).all()
-    except Exception as e:
-        session.rollback()
-        print(f"An error occurred: {e}")
+    """
+    Creates a new session to fetch all users.
+    """
+    with Session() as session:
+        try:
+            return session.query(User).all()
+        except Exception as e:
+            session.rollback()
+            print(f"An error occurred: {e}")
+            return [] 

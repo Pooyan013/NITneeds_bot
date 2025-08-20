@@ -272,7 +272,7 @@ def handle_admin_action(call):
     request = pending_requests[idx]
     
     if action == "accept":
-        bot.send_message(channel_id, f"{request['message']}")
+        bot.send_message(channel_username, f"{request['message']}")
         bot.answer_callback_query(call.id, "درخواست تایید شد و به کانال ارسال شد.")
         pending_requests.pop(idx)  
     elif action == "reject":
