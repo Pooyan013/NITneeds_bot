@@ -143,3 +143,51 @@ bargh_facility = '''⚡️#شماره تماس اساتید دانشکده بر�
 09118596014 / مهندس اسحاق صادقی
 
 09115845080 / مهندس مرتضی اصغری سلیمانی'''
+
+paye_facility = '''
+اساتید گروه علوم پایه 
+دانشگاه صنعتی نوشیروانی بابل
+📍علی بنی جمالی شماره: 09359967728 ایمیل:
+a.banijamali@nit.ac.ir
+a.banijamali@gmail.com
+📍سمیه خادملو شماره: +989111167558 ایمیل:
+s.khademloo@nit.ac.ir
+somayehkhademloo@gmail.com
+📍بهرام محمدزاده شماره: 09132137297 ایمیل: b.mohammadzadeh@nit.ac.ir
+📍محمود بهروزی‌فر شماره: +989113235659 ایمیل:
+m_behroozifar@nit.ac.ir
+behroozifar2@gmail.com
+📍عزیزالله باباخانی شماره: 09112148661 ایمیل:
+babakhani@nit.ac.ir
+babakhane@gmail.com
+📍علی مهری شماره: +989305018368 ایمیل:
+alimehri@nit.ac.ir
+alimehri197@gmail.com
+📍روح‌الله بخشنده شماره: 09112286350 ایمیل: r_bakhshandeh@nit.ac.ir
+📍حسین آکو شماره: +989113218575 ایمیل:
+h.akou@nit.ac.ir
+hossein.akou@gmail.com
+📍ساناز ریواز شماره: +989173152610 ایمیل: srivaz@nit.ac.ir
+📍حمزه آگاهی شماره: 09155570936 ایمیل: h_agahi@nit.ac.ir
+📍رضا خان بابایی شماره: 09118988829 ایمیل:
+rkhanbabaie@nit.ac.ir
+reza.khanbabaie@gmail.com
+'''
+
+maaref_facility = """
+گروه آموزشی معارف 
+دانشگاه صنعتی نوشیروانی بابل
+📍سید حسین آقابابایی شماره: 09121054405 ایمیل: h.agababaei@nit.ac.ir
+📍غلامرضا ضابط‌پور شماره: +989127527043 ایمیل: zabetpour@nit.ac.ir
+📍هادی رزاقی شماره: +989112140112 ایمیل: razaghi@nit.ac.ir
+📍محمد ابراهیم نتاج ایمیل: mohamad.natag@yahoo.com
+📍یوسف حیدری شماره: 09111170799 ایمیل: heidari@nit.ac.ir
+📍جمشید آقاجان‌زاده شماره: 09111143317 ایمیل: j.aghajanzade@gmail.com
+📍سید حامد صالحیان شماره: 09111191103 ایمیل: seyedhamed17@gmail.com
+📍ابراهیم رمضانی شماره: 09112140407 ایمیل: ramzani@nit.ac.ir
+📍مهران خدادادی شماره: +989112159397 ایمیل: mehrankhodadadi.52@gmail.com
+📍محمد حسین شیرافکن شماره: 09112170018 ایمیل: mh.shirafkan.12@gmail.com
+📍حسن خدادی شماره: 09195284750 ایمیل: h.khodadi1404@yahoo.com
+📍محمد ابراهیم بخشنده شماره: 09113513494 ایمیل: bakhshandeh2008@yahoo.com
+📍زینب مشکانی شماره: 09158725889 ایمیل: zainabmashkani@yahoo.com
+"""

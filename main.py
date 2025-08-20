@@ -26,7 +26,7 @@ keyboard_markup.add(*buttons)
 keyboard_markup = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
 keyboard_markup.add(*buttons)
 
-faculty = ["علوم پایه", "مکانیک", "عمران", "شیمی", "صنایع و مواد", "برق و کامپیوتر", "🔙 بازگشت"]
+faculty = ["علوم پایه", "معارف","مکانیک", "عمران", "شیمی", "صنایع و مواد", "برق و کامپیوتر", "🔙 بازگشت"]
 faculty_markup = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
 faculty_markup.add(*faculty)
 
@@ -74,12 +74,12 @@ admin_roles = {
     442513360: "all",
     244143516: "all",
     101108999: "all",
-    1751472873: "درخواستی",  
-    1172391323: "فروشی",
-    581500840: "پرسش",
-    5410322306: "گمشده", 
-    5410322306: "پیدا_شده",  
-    101108994: "همخونه",      
+    1751472873: "all",  
+    1172391323: "all",
+    581500840: "all",
+    5410322306: "all", 
+    5410322306: "all",  
+    101108994: "all",      
 }
 
 @bot.message_handler(commands=["admin"])
@@ -123,23 +123,29 @@ def back_to_main(message):
     bot.send_message(chat_id, "به صفحه اصلی بازگشتید.", reply_markup=keyboard_markup)
 
 
+import time
+
 @bot.message_handler(commands=["broadcast"])
 def broadcast_message(message):
-    if message.from_user.id in [112911597, 244143516, 101108999]:  
-        bot.send_message(message.chat.id, "لطفاً پیام خود را برای ارسال به همه کاربران وارد کنید:")
+    if message.from_user.id in [112911597, 244143516, 101108999]:
+        bot.send_message(message.chat.id, "لطفاً پیام خود را (ویدئو، عکس یا متن) برای ارسال به همه کاربران وارد کنید:")
         bot.register_next_step_handler(message, send_broadcast)
     else:
-        bot.send_message(message.chat.id, "شما دسترسی لازم برای ارسال پیام به کاربران را ندارید.")
+        bot.send_message(message.chat.id, "شما دسترسی لازم برای این کار را ندارید.")
 
 def send_broadcast(message):
     users = get_all_users()
+    from_chat_id = message.chat.id
+    message_id = message.message_id
+
     for user in users:
         try:
-            bot.send_message(user.user_id, message.text)
+            bot.copy_message(chat_id=user.user_id, from_chat_id=from_chat_id, message_id=message_id)
+            time.sleep(0.1)
         except Exception as e:
             print(f"خطا در ارسال پیام به کاربر {user.user_id}: {e}")
     
-    bot.send_message(message.chat.id, "پیام شما به تمام کاربران ارسال شد.")
+    bot.send_message(message.chat.id, "پیام شما با موفقیت به تمام کاربران ارسال شد.")
 
 
 @bot.message_handler(commands=["start"])
@@ -194,18 +200,15 @@ def process_user_message(message):
     user_message = message.text
     hashtag = user_states[chat_id]["hashtag"]
     
-    if hashtag == "#پرسش":
-        final_massage = f"❓{user_message}"
-    else:
-        final_message = f"{hashtag}\n{user_message}"
+    final_message = f"❓{user_message}" if hashtag == "#پرسش" else f"{hashtag}\n{user_message}"
 
     pending_requests.append({
         "user_id": chat_id,
-        "message": final_massage,
-        "hashtag": hashtag,  
+        "message": final_message,
+        "hashtag": hashtag,
         "approved": False
     })
-    
+
     bot.reply_to(message, "درخواست شما با موفقیت برای ادمین ارسال شد. در صورت تایید در کانال منتشر می‌شود.")
     del user_states[chat_id]
 
@@ -246,6 +249,12 @@ def main(message):
 
     elif message.text == "برق و کامپیوتر":
         bot.send_message(message.chat.id, bargh_facility)
+
+    elif message.text == "علوم پایه":
+        bot.send_message(message.chat.id, paye_facility)
+
+    elif message.text == "معارف":
+        bot.send_message(message.chat.id, maaref_facility)
 
 
 @bot.message_handler(func=lambda message: message.text == "📩 اطلاعات اساتید")
