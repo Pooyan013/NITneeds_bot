@@ -8,3 +8,4 @@ SQLAlchemy==2.0.39
 telebot==0.0.5
 typing_extensions==4.12.2
 urllib3==2.3.0
+uuid

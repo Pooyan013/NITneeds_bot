@@ -5,6 +5,8 @@ from keys import *
 from database import add_or_update_user, get_all_users
 import time
 from hash import hash
+import uuid
+
 bot = telebot.TeleBot(hash)
 channel_username = "@nit_needs"  
 
@@ -267,26 +269,31 @@ def handle_faculty_info(message):
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("accept_") or call.data.startswith("reject_"))
 def handle_admin_action(call):
-    action, idx = call.data.split("_")
-    idx = int(idx)
-    request = pending_requests[idx]
+    action, request_id = call.data.split("_")
+    request = next((r for r in pending_requests if r["request_id"] == request_id), None)
+    
+    if not request:
+        bot.answer_callback_query(call.id, "این درخواست دیگر موجود نیست.")
+        return
     
     if action == "accept":
         bot.send_message(channel_username, f"{request['message']}")
         bot.answer_callback_query(call.id, "درخواست تایید شد و به کانال ارسال شد.")
-        pending_requests.pop(idx)  
+        pending_requests.remove(request)
     elif action == "reject":
         bot.send_message(call.message.chat.id, "لطفا دلیل رد شدن را وارد کنید:")
-        bot.register_next_step_handler(call.message, lambda msg: process_rejection(msg, idx))
+        bot.register_next_step_handler(call.message, lambda msg: process_rejection(msg, request["request_id"]))
 
-def process_rejection(message, idx):
+def process_rejection(message, request_id):
     reason = message.text
-    request = pending_requests[idx]
-    user_id = request["user_id"]
+    request = next((r for r in pending_requests if r["request_id"] == request_id), None)
     
-    bot.send_message(user_id, f"درخواست شما رد شد. دلیل:\n{reason}")
-    bot.send_message(message.chat.id, "درخواست با موفقیت رد شد.")
-    pending_requests.pop(idx) 
+    if request:
+        user_id = request["user_id"]
+        bot.send_message(user_id, f"درخواست شما رد شد. دلیل:\n{reason}")
+        bot.send_message(message.chat.id, "درخواست با موفقیت رد شد.")
+        pending_requests.remove(request)
+
 
 def timeout_message(chat_id):
     if user_states.get(chat_id) == "waiting_for_message":

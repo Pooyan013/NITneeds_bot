@@ -1,0 +1,7 @@
+services:
+  bot:
+    build: .
+    container_name: nitneeds_bot
+    restart: unless-stopped
+    volumes:
+      - ./data:/app/data

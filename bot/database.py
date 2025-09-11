@@ -7,8 +7,6 @@ Base = declarative_base()
 
 Session = sessionmaker(bind=engine)
 
-
-
 class User(Base):
     __tablename__ = 'users'
 
