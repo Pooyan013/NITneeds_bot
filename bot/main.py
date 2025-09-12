@@ -25,8 +25,6 @@ buttons = [
 ]
 keyboard_markup = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
 keyboard_markup.add(*buttons)
-keyboard_markup = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
-keyboard_markup.add(*buttons)
 
 faculty = ["علوم پایه", "معارف","مکانیک", "عمران", "شیمی", "صنایع و مواد", "برق و کامپیوتر", "🔙 بازگشت"]
 faculty_markup = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
@@ -79,7 +77,6 @@ admin_roles = {
     1751472873: "all",  
     1172391323: "all",
     581500840: "all",
-    5410322306: "all", 
     5410322306: "all",  
     101108994: "all",      
 }
@@ -101,16 +98,18 @@ def admin(message):
     if len(relevant_requests) == 0:
         bot.send_message(message.chat.id, "هیچ درخواستی برای تایید وجود ندارد.")
     else:
-        for idx, request in enumerate(relevant_requests):
+        for request in relevant_requests:
             markup = InlineKeyboardMarkup()
-            accept_button = InlineKeyboardButton("✅ تایید", callback_data=f"accept_{idx}")
-            reject_button = InlineKeyboardButton("❌ رد", callback_data=f"reject_{idx}")
+            accept_button = InlineKeyboardButton("✅ تایید", callback_data=f"accept_{request['request_id']}")
+            reject_button = InlineKeyboardButton("❌ رد", callback_data=f"reject_{request['request_id']}")
             markup.add(accept_button, reject_button)
-            
-            user_info = bot.get_chat(request['user_id'])
-            username = user_info.username if user_info.username else f"کاربر {request['user_id']}"
-            
-            bot.send_message(message.chat.id, f"درخواست از {username}:\n{request['message']}", reply_markup=markup)
+
+            bot.send_message(
+                message.chat.id,
+                f"درخواست از {request['user_id']}:\n{request['message']}",
+                reply_markup=markup
+            )
+
 
 @bot.message_handler(func=lambda message: message.text == "🔙 بازگشت")
 def back_to_main(message):
@@ -205,11 +204,13 @@ def process_user_message(message):
     final_message = f"❓{user_message}" if hashtag == "#پرسش" else f"{hashtag}\n{user_message}"
 
     pending_requests.append({
+        "request_id": str(uuid.uuid4()),   
         "user_id": chat_id,
         "message": final_message,
         "hashtag": hashtag,
         "approved": False
     })
+
 
     bot.reply_to(message, "درخواست شما با موفقیت برای ادمین ارسال شد. در صورت تایید در کانال منتشر می‌شود.")
     del user_states[chat_id]
@@ -269,20 +270,23 @@ def handle_faculty_info(message):
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("accept_") or call.data.startswith("reject_"))
 def handle_admin_action(call):
-    action, request_id = call.data.split("_")
+    action, request_id = call.data.split("_", 1)
     request = next((r for r in pending_requests if r["request_id"] == request_id), None)
-    
-    if not request:
-        bot.answer_callback_query(call.id, "این درخواست دیگر موجود نیست.")
-        return
-    
-    if action == "accept":
-        bot.send_message(channel_username, f"{request['message']}")
-        bot.answer_callback_query(call.id, "درخواست تایید شد و به کانال ارسال شد.")
+
+    if request:
+        if action == "accept":
+            bot.send_message(channel_username, f"{request['message']}\n\n{request['hashtag']}")
+            request["approved"] = True
+            bot.send_message(request["user_id"], "✅ درخواستت تایید شد و در کانال منتشر شد.")
+        elif action == "reject":
+            request["approved"] = False
+            bot.send_message(request["user_id"], "❌ درخواستت توسط ادمین رد شد.")
+
         pending_requests.remove(request)
-    elif action == "reject":
-        bot.send_message(call.message.chat.id, "لطفا دلیل رد شدن را وارد کنید:")
-        bot.register_next_step_handler(call.message, lambda msg: process_rejection(msg, request["request_id"]))
+        bot.answer_callback_query(call.id, "عملیات انجام شد.")
+    else:
+        bot.answer_callback_query(call.id, "❗ درخواست پیدا نشد یا قبلاً رسیدگی شده.")
+
 
 def process_rejection(message, request_id):
     reason = message.text
@@ -296,7 +300,7 @@ def process_rejection(message, request_id):
 
 
 def timeout_message(chat_id):
-    if user_states.get(chat_id) == "waiting_for_message":
+    if user_states.get(chat_id, {}).get("state") == "waiting_for_message":
         bot.send_message(chat_id, """زمان شما برای ارسال پیام تمام شد. لطفاً از قبل پیام خود را آماده کنید و سپس درخواست دهید.
 برای شروع مجدد روی /start کلیک کنید.""")
         del user_states[chat_id]
