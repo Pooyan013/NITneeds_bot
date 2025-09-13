@@ -275,7 +275,7 @@ def handle_admin_action(call):
 
     if request:
         if action == "accept":
-            bot.send_message(channel_username, f"{request['message']}\n\n{request['hashtag']}")
+            bot.send_message(channel_username, f"{request['message']}\n")
             request["approved"] = True
             bot.send_message(request["user_id"], "✅ درخواستت تایید شد و در کانال منتشر شد.")
         elif action == "reject":
