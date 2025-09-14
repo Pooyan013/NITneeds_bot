@@ -273,28 +273,31 @@ def handle_admin_action(call):
     action, request_id = call.data.split("_", 1)
     request = next((r for r in pending_requests if r["request_id"] == request_id), None)
 
-    if request:
-        if action == "accept":
-            bot.send_message(channel_username, f"{request['message']}\n")
-            request["approved"] = True
-            bot.send_message(request["user_id"], "✅ درخواستت تایید شد و در کانال منتشر شد.")
-        elif action == "reject":
-            request["approved"] = False
-            bot.send_message(request["user_id"], "❌ درخواستت توسط ادمین رد شد.")
-
-        pending_requests.remove(request)
-        bot.answer_callback_query(call.id, "عملیات انجام شد.")
-    else:
+    if not request:
         bot.answer_callback_query(call.id, "❗ درخواست پیدا نشد یا قبلاً رسیدگی شده.")
+        return
+
+    if action == "accept":
+        bot.send_message(channel_username, f"{request['message']}\n")
+        request["approved"] = True
+        bot.send_message(request["user_id"], "✅ درخواستت تایید شد و در کانال منتشر شد.")
+        
+        pending_requests.remove(request)
+        bot.answer_callback_query(call.id, "درخواست تایید شد.")
+
+    elif action == "reject":
+        bot.send_message(call.message.chat.id, "❌ لطفاً دلیل رد شدن این درخواست را وارد کنید:")
+        bot.register_next_step_handler(call.message, process_rejection, request_id)
+        bot.answer_callback_query(call.id, "در حال انتظار برای دلیل رد شدن...")
 
 
 def process_rejection(message, request_id):
     reason = message.text
     request = next((r for r in pending_requests if r["request_id"] == request_id), None)
-    
+
     if request:
         user_id = request["user_id"]
-        bot.send_message(user_id, f"درخواست شما رد شد. دلیل:\n{reason}")
+        bot.send_message(user_id, f"❌ درخواستت رد شد.\nدلیل: {reason}")
         bot.send_message(message.chat.id, "درخواست با موفقیت رد شد.")
         pending_requests.remove(request)
 
