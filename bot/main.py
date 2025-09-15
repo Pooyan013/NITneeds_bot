@@ -276,15 +276,12 @@ def handle_admin_action(call):
     if not request:
         bot.answer_callback_query(call.id, "❗ درخواست پیدا نشد یا قبلاً رسیدگی شده.")
         return
-
-    if action == "accept":
+    if request:
+     if action == "accept":
         bot.send_message(channel_username, f"{request['message']}\n")
         request["approved"] = True
-        bot.send_message(request["user_id"], "✅ درخواستت تایید شد و در کانال منتشر شد.")
-        
+        safe_send_message(request["user_id"], "✅ درخواستت تایید شد و در کانال منتشر شد.")
         pending_requests.remove(request)
-        bot.answer_callback_query(call.id, "درخواست تایید شد.")
-
     elif action == "reject":
         bot.send_message(call.message.chat.id, "❌ لطفاً دلیل رد شدن این درخواست را وارد کنید:")
         bot.register_next_step_handler(call.message, process_rejection, request_id)
@@ -307,5 +304,15 @@ def timeout_message(chat_id):
         bot.send_message(chat_id, """زمان شما برای ارسال پیام تمام شد. لطفاً از قبل پیام خود را آماده کنید و سپس درخواست دهید.
 برای شروع مجدد روی /start کلیک کنید.""")
         del user_states[chat_id]
+
+
+def safe_send_message(chat_id, text, **kwargs):
+    try:
+        bot.send_message(chat_id, text, **kwargs)
+    except telebot.apihelper.ApiTelegramException as e:
+        if "Forbidden: bot was blocked by the user" in str(e):
+            print(f"❌ کاربر {chat_id} ربات رو بلاک کرده.")
+        else:
+            print(f"⚠️ خطا در ارسال پیام به {chat_id}: {e}")
 
 bot.infinity_polling()
