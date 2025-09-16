@@ -268,7 +268,6 @@ def handle_faculty_info(message):
     else:
         send_subscription_prompt(message.chat.id)
 
-
 @bot.callback_query_handler(func=lambda call: call.data.startswith("accept_") or call.data.startswith("reject_"))
 def handle_admin_action(call):
     action, request_id = call.data.split("_", 1)
@@ -277,42 +276,28 @@ def handle_admin_action(call):
     if not request:
         bot.answer_callback_query(call.id, "❗ درخواست پیدا نشد یا قبلاً رسیدگی شده.")
         return
-    if request:
-     if action == "accept":
+
+    chat_id = call.message.chat.id
+    bot.edit_message_reply_markup(chat_id=chat_id, message_id=call.message.message_id, reply_markup=None)  # حذف دکمه‌ها
+
+    if action == "accept":
         bot.send_message(channel_username, f"{request['message']}\n")
         request["approved"] = True
         safe_send_message(request["user_id"], "✅ درخواستت تایید شد و در کانال منتشر شد.")
-        bot.send_message(call.message.chat.id, "درخواست با موفقیت تایید شد ✅")
+        bot.send_message(chat_id, "✅ درخواست با موفقیت تایید شد.", reply_markup=keyboard_markup)
         pending_requests.remove(request)
 
     elif action == "reject":
-        sent = bot.send_message(call.message.chat.id, "❌ لطفاً دلیل رد شدن این درخواست را وارد کنید:")
-        bot.register_next_step_handler(sent, process_rejection, request_id)
         bot.answer_callback_query(call.id, "در حال انتظار برای دلیل رد شدن...")
-        bot.send_message(call.message.chat.id, "⏳ منتظر دلیل رد شدن درخواست هستم...")  
+        msg = bot.send_message(chat_id, "❌ لطفاً دلیل رد شدن این درخواست را وارد کنید:")
 
+        def process_reason(message):
+            reason = message.text.strip()
+            safe_send_message(request["user_id"], f"❌ درخواستت رد شد.\n📝 دلیل: {reason}")
+            pending_requests.remove(request)
+            bot.send_message(chat_id, "✅ درخواست با موفقیت رد شد.", reply_markup=keyboard_markup)
 
-
-def process_rejection(message, request_id):
-    reason = message.text.strip()
-    request = next((r for r in pending_requests if r["request_id"] == request_id), None)
-
-    if not request:
-        bot.send_message(message.chat.id, "❗ درخواست پیدا نشد یا قبلاً رسیدگی شده.")
-        return
-
-    user_id = request["user_id"]
-    safe_send_message(user_id, f"❌ درخواستت رد شد.\n📝 دلیل: {reason}")
-    bot.send_message(message.chat.id, "درخواست با موفقیت رد شد ✅")
-
-    pending_requests.remove(request)
-
-
-def timeout_message(chat_id):
-    if user_states.get(chat_id, {}).get("state") == "waiting_for_message":
-        bot.send_message(chat_id, """زمان شما برای ارسال پیام تمام شد. لطفاً از قبل پیام خود را آماده کنید و سپس درخواست دهید.
-برای شروع مجدد روی /start کلیک کنید.""")
-        del user_states[chat_id]
+        bot.register_next_step_handler(msg, process_reason)
 
 
 def safe_send_message(chat_id, text, **kwargs):
