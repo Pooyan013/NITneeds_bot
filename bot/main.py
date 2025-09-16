@@ -78,7 +78,8 @@ admin_roles = {
     1172391323: "all",
     581500840: "all",
     5410322306: "all",  
-    101108994: "all",      
+    101108994: "all",  
+    6695777982: "all",     
 }
 
 @bot.message_handler(commands=["admin"])
@@ -288,6 +289,8 @@ def handle_admin_action(call):
         sent = bot.send_message(call.message.chat.id, "❌ لطفاً دلیل رد شدن این درخواست را وارد کنید:")
         bot.register_next_step_handler(sent, process_rejection, request_id)
         bot.answer_callback_query(call.id, "در حال انتظار برای دلیل رد شدن...")
+        bot.send_message(call.message.chat.id, "⏳ منتظر دلیل رد شدن درخواست هستم...")  
+
 
 
 def process_rejection(message, request_id):
