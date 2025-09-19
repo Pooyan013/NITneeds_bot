@@ -307,7 +307,7 @@ def handle_admin_action(call):
             reason = message.text.strip()
             safe_send_message(request["user_id"], f"❌ درخواستت رد شد.\n📝 دلیل: {reason}")
             pending_requests.remove(request)
-            bot.send_message(chat_id, "✅ درخواست با موفقیت رد شد.",reply_markup=keyboard_markup)
+            bot.send_message(chat_id, "✅ درخواست با موفقیت رد شد.", reply_markup=keyboard_markup)
 
         bot.register_next_step_handler(msg, process_reason)
 
