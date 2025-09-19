@@ -179,20 +179,22 @@ def handle_request(message, hashtag, instruction_text):
         if chat_id in timers:
             timers[chat_id].cancel()
         
-        timer = Timer(120, timeout_message, [chat_id])
+        timer = Timer(120, timeout_message, [chat_id])    
         timer.start()
         timers[chat_id] = timer
 
-        notification_timer = Timer(3600, notify_admin, [chat_id])
-        notification_timer.start()
     else:
         send_subscription_prompt(chat_id)
 
-def notify_admin(chat_id):
-    relevant_requests = [req for req in pending_requests if req["user_id"] == chat_id]
-    if len(relevant_requests) > 0:
+def notify_admin(request_id):
+    request_exists = any(req['request_id'] == request_id for req in pending_requests)
+    
+    if request_exists:
         for admin_id in admin_roles:
-            bot.send_message(admin_id, "درخواستی از کاربر بیش از یک ساعت است که بدون پاسخ باقی مانده است.")
+            try:
+                bot.send_message(admin_id, "یک درخواست بیش از یک ساعت است که بدون پاسخ باقی مانده است.")
+            except Exception as e:
+                print(f"Failed to notify admin {admin_id}: {e}")
 
 
 
@@ -203,15 +205,21 @@ def process_user_message(message):
     hashtag = user_states[chat_id]["hashtag"]
     
     final_message = f"❓{user_message}" if hashtag == "#پرسش" else f"{hashtag}\n{user_message}"
+    
+    request_id = str(uuid.uuid4())
 
     pending_requests.append({
-        "request_id": str(uuid.uuid4()),   
+        "request_id": request_id,  
         "user_id": chat_id,
         "message": final_message,
         "hashtag": hashtag,
         "approved": False
     })
 
+    notification_timer = Timer(3600, notify_admin, args=[request_id])
+    notification_timer.start()
+    
+    timers[f"notify_{request_id}"] = notification_timer
 
     bot.reply_to(message, "درخواست شما با موفقیت برای ادمین ارسال شد. در صورت تایید در کانال منتشر می‌شود.")
     del user_states[chat_id]
@@ -277,12 +285,16 @@ def handle_admin_action(call):
         bot.answer_callback_query(call.id, "❗ درخواست پیدا نشد یا قبلاً رسیدگی شده.")
         return
 
+    timer_key = f"notify_{request_id}"
+    if timer_key in timers:
+        timers[timer_key].cancel()
+        del timers[timer_key]
+
     chat_id = call.message.chat.id
-    bot.edit_message_reply_markup(chat_id=chat_id, message_id=call.message.message_id, reply_markup=None)  # حذف دکمه‌ها
+    bot.edit_message_reply_markup(chat_id=chat_id, message_id=call.message.message_id, reply_markup=None)
 
     if action == "accept":
         bot.send_message(channel_username, f"{request['message']}\n")
-        request["approved"] = True
         safe_send_message(request["user_id"], "✅ درخواستت تایید شد و در کانال منتشر شد.")
         bot.send_message(chat_id, "✅ درخواست با موفقیت تایید شد.", reply_markup=keyboard_markup)
         pending_requests.remove(request)
@@ -295,10 +307,9 @@ def handle_admin_action(call):
             reason = message.text.strip()
             safe_send_message(request["user_id"], f"❌ درخواستت رد شد.\n📝 دلیل: {reason}")
             pending_requests.remove(request)
-            bot.send_message(chat_id, "✅ درخواست با موفقیت رد شد.", reply_markup=keyboard_markup)
+            bot.send_message(chat_id, "✅ درخواست با موفقیت رد شد.",reply_markup=keyboard_markup)
 
         bot.register_next_step_handler(msg, process_reason)
-
 
 def safe_send_message(chat_id, text, **kwargs):
     try:
