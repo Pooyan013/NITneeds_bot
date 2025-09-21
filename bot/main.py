@@ -10,7 +10,8 @@ import uuid
 bot = telebot.TeleBot(hash)
 channel_username = "@nit_needs"  
 JOB_ADMIN_ID = 112911597
-#___________________________________BUTTONS________________________________________________
+
+# ___________________________________BUTTONS________________________________________________
 buttons = [
     "🏷 فروشی", 
     "📎 درخواستی", 
@@ -24,8 +25,7 @@ buttons = [
     "📞 ارتباط با ادمین", 
 ]
 
-
-home_button= [
+home_button = [
     "👧همخونه دختر",
     "👦همخونه پسر",
     "🔙 بازگشت"
@@ -52,8 +52,9 @@ pending_requests = []
 user_states = {}
 last_request_times = {}
 timers = {} 
-#____________________________________Verfication FUNCTION________________________________________
+admin_messages = {}  # ذخیره message_id هر درخواست برای هر ادمین
 
+# ____________________________________Verfication FUNCTION________________________________________
 def check_channel_membership(user_id):
     try:
         status = bot.get_chat_member(channel_username, user_id).status
@@ -86,8 +87,7 @@ def check_subscription(call):
     else:
         bot.answer_callback_query(call.id, "هنوز عضو کانال نیستید. لطفاً ابتدا عضو شوید.")
 
-#____________________________________HANDLERS_____________________________________________
-
+# ____________________________________ADMINS_____________________________________________
 admin_roles = {
     112911597: "all", 
     442513360: "all",
@@ -101,35 +101,17 @@ admin_roles = {
     6695777982: "all",     
 }
 
-@bot.message_handler(commands=["admin"])
-def admin(message):
-    admin_id = message.from_user.id
-    admin_role = admin_roles.get(admin_id, None)
-
-    if admin_role is None:
-        bot.send_message(message.chat.id, "شما دسترسی لازم برای مشاهده درخواست‌ها را ندارید.")
-        return
-
-    if admin_role == "all":
-        relevant_requests = pending_requests
-    else:
-        relevant_requests = [req for req in pending_requests if req["hashtag"] == f"#{admin_role}"]
-
-    if len(relevant_requests) == 0:
-        bot.send_message(message.chat.id, "هیچ درخواستی برای تایید وجود ندارد.")
-    else:
-        for request in relevant_requests:
-            markup = InlineKeyboardMarkup()
-            accept_button = InlineKeyboardButton("✅ تایید", callback_data=f"accept_{request['request_id']}")
-            reject_button = InlineKeyboardButton("❌ رد", callback_data=f"reject_{request['request_id']}")
-            markup.add(accept_button, reject_button)
-
-            bot.send_message(
-                message.chat.id,
-                f"درخواست از {request['user_id']}:\n{request['message']}",
-                reply_markup=markup
-            )
-
+# ____________________________________START & BACK_____________________________________________
+@bot.message_handler(commands=["start"])
+def send_welcome(message):
+    chat_id = message.chat.id
+    username = message.from_user.username
+    full_name = message.from_user.first_name + " " + (message.from_user.last_name or "")
+    
+    add_or_update_user(chat_id, username, full_name)
+    
+    bot.send_message(chat_id, f"""سلام به ربات نیازمندی‌ها خوش اومدی 🩷
+چطوری میتونم بهت کمک کنم؟""", reply_markup=keyboard_markup)
 
 @bot.message_handler(func=lambda message: message.text == "🔙 بازگشت")
 def back_to_main(message):
@@ -143,43 +125,7 @@ def back_to_main(message):
     
     bot.send_message(chat_id, "به صفحه اصلی بازگشتید.", reply_markup=keyboard_markup)
 
-import time
-
-@bot.message_handler(commands=["broadcast"])
-def broadcast_message(message):
-    if message.from_user.id in [112911597, 244143516, 101108999]:
-        bot.send_message(message.chat.id, "لطفاً پیام خود را (ویدئو، عکس یا متن) برای ارسال به همه کاربران وارد کنید:")
-        bot.register_next_step_handler(message, send_broadcast)
-    else:
-        bot.send_message(message.chat.id, "شما دسترسی لازم برای این کار را ندارید.")
-
-def send_broadcast(message):
-    users = get_all_users()
-    from_chat_id = message.chat.id
-    message_id = message.message_id
-
-    for user in users:
-        try:
-            bot.copy_message(chat_id=user.user_id, from_chat_id=from_chat_id, message_id=message_id)
-            time.sleep(0.1)
-        except Exception as e:
-            print(f"خطا در ارسال پیام به کاربر {user.user_id}: {e}")
-    
-    bot.send_message(message.chat.id, "پیام شما با موفقیت به تمام کاربران ارسال شد.")
-
-
-@bot.message_handler(commands=["start"])
-def send_welcome(message):
-    chat_id = message.chat.id
-    username = message.from_user.username
-    full_name = message.from_user.first_name + " " + (message.from_user.last_name or "")
-    
-    add_or_update_user(chat_id, username, full_name)
-    
-    bot.send_message(chat_id, f"""سلام به ربات نیازمندی‌ها خوش اومدی 🩷
-چطوری میتونم بهت کمک کنم؟""", reply_markup=keyboard_markup)
-
-
+# ____________________________________REQUEST HANDLER________________________________________
 def handle_request(message, hashtag, instruction_text):
     chat_id = message.chat.id
     
@@ -204,18 +150,7 @@ def handle_request(message, hashtag, instruction_text):
     else:
         send_subscription_prompt(chat_id)
 
-def notify_admin(request_id):
-    request_exists = any(req['request_id'] == request_id for req in pending_requests)
-    
-    if request_exists:
-        for admin_id in admin_roles:
-            try:
-                bot.send_message(admin_id, "یک درخواست بیش از یک ساعت است که بدون پاسخ باقی مانده است.")
-            except Exception as e:
-                print(f"Failed to notify admin {admin_id}: {e}")
-
-
-
+# ____________________________________PROCESS USER REQUEST________________________________________
 @bot.message_handler(func=lambda message: message.chat.id in user_states and user_states[message.chat.id]["state"] == "waiting_for_message")
 def process_user_message(message):
     chat_id = message.chat.id
@@ -233,6 +168,8 @@ def process_user_message(message):
         "approved": False
     })
 
+    admin_messages[request_id] = {}
+
     if hashtag == "#فرصت_شغلی":
         target_admins = [JOB_ADMIN_ID]
     else:
@@ -245,70 +182,23 @@ def process_user_message(message):
             reject_button = InlineKeyboardButton("❌ رد", callback_data=f"reject_{request_id}")
             markup.add(accept_button, reject_button)
 
-            bot.send_message(admin_id, f"درخواست جدید:\n{final_message}", reply_markup=markup)
+            sender_info = f"👤 فرستنده: @{message.from_user.username}" if message.from_user.username else f"👤 فرستنده: {message.from_user.first_name}"
+
+            sent_msg = bot.send_message(
+                admin_id,
+                f"{sender_info}\n\nدرخواست جدید:\n{final_message}",
+                reply_markup=markup
+            )
+
+            admin_messages[request_id][admin_id] = sent_msg.message_id
+
         except Exception as e:
             print(f"خطا در ارسال به ادمین {admin_id}: {e}")
 
     bot.reply_to(message, "درخواست شما با موفقیت برای بررسی ارسال شد.")
     del user_states[chat_id]
 
-@bot.message_handler()
-def main(message):
-    chat_id = message.chat.id
-    if message.text in ["📤ارسال جزوه و فایل", "📩 اطلاعات اساتید", "📈 تبلیغات", "📞 ارتباط با ادمین"]:
-        if check_channel_membership(chat_id):
-            if message.text == "📤ارسال جزوه و فایل":
-                bot.send_message(chat_id, text_send, reply_markup=back_markup)
-            elif message.text == "📩 اطلاعات اساتید":
-                bot.send_message(chat_id, "در مورد استاد کدوم دانشکده میخوای اطلاعات بدم؟", reply_markup=faculty_markup)
-            elif message.text == "📈 تبلیغات":
-                bot.send_message(chat_id, text_tablighat)
-            elif message.text == "📞 ارتباط با ادمین":
-                bot.send_message(chat_id, text_admin)
-        else:
-            send_subscription_prompt(chat_id)
-    
-    elif message.text == "📎 درخواستی":
-        handle_request(message, "#درخواستی", text_darkhasti)
-        
-    elif message.text == "🏷 فروشی":
-        handle_request(message, "#فروشی", text_foroshi)
-    
-    elif message.text == "🏡 همخونه":
-        bot.send_message(chat_id, "لطفاً انتخاب کنید:", reply_markup=home_keyboard)
-
-    elif message.text == "👧همخونه دختر":
-        handle_request(message, "#همخونه_دختر", "لطفاً متن درخواست همخونه دختر خود را وارد کنید:")
-
-    elif message.text == "👦همخونه پسر":
-        handle_request(message, "#همخونه_پسر", "لطفاً متن درخواست همخونه پسر خود را وارد کنید:")
-
-    elif message.text == "🔍 گمشده":
-        handle_request(message, "#گمشده", text_gomshode)
-
-    elif message.text == "🔎 پیدا شده":
-        handle_request(message, "#پیدا_شده", text_peyda_shode)
-
-    elif message.text == "💡فرصت شغلی":
-        handle_request(message, "#فرصت_شغلی", text_job)
-
-    elif message.text == "برق و کامپیوتر":
-        bot.send_message(message.chat.id, bargh_facility)
-
-    elif message.text == "علوم پایه":
-        bot.send_message(message.chat.id, paye_facility)
-
-    elif message.text == "معارف":
-        bot.send_message(message.chat.id, maaref_facility)
-
-
-@bot.message_handler(func=lambda message: message.text == "📩 اطلاعات اساتید")
-def handle_faculty_info(message):
-    if check_channel_membership(message.chat.id):
-        bot.send_message(message.chat.id, "در مورد استاد کدوم دانشکده میخوای اطلاعات بدم؟", reply_markup=faculty_markup)
-    else:
-        send_subscription_prompt(message.chat.id)
-
+# ____________________________________ADMIN ACTIONS________________________________________
 @bot.callback_query_handler(func=lambda call: call.data.startswith("accept_") or call.data.startswith("reject_"))
 def handle_admin_action(call):
     action, request_id = call.data.split("_", 1)
@@ -322,33 +212,33 @@ def handle_admin_action(call):
         bot.answer_callback_query(call.id, "⛔ شما مجاز به مدیریت فرصت‌های شغلی نیستید.")
         return
 
-    timer_key = f"notify_{request_id}"
-    if timer_key in timers:
-        timers[timer_key].cancel()
-        del timers[timer_key]
-
-    chat_id = call.message.chat.id
-    bot.edit_message_reply_markup(chat_id=chat_id, message_id=call.message.message_id, reply_markup=None)
+    # حذف پیام از همه ادمین‌ها
+    if request_id in admin_messages:
+        for admin_id, msg_id in admin_messages[request_id].items():
+            try:
+                bot.delete_message(admin_id, msg_id)
+            except Exception as e:
+                print(f"❌ خطا در حذف پیام ادمین {admin_id}: {e}")
+        del admin_messages[request_id]
 
     if action == "accept":
         bot.send_message(channel_username, f"{request['message']}\n")
         safe_send_message(request["user_id"], "✅ درخواستت تایید شد و در کانال منتشر شد.")
-        bot.send_message(chat_id, "✅ درخواست با موفقیت تایید شد.", reply_markup=keyboard_markup)
         pending_requests.remove(request)
 
     elif action == "reject":
         bot.answer_callback_query(call.id, "در حال انتظار برای دلیل رد شدن...")
-        msg = bot.send_message(chat_id, "❌ لطفاً دلیل رد شدن این درخواست را وارد کنید:")
+        msg = bot.send_message(call.message.chat.id, "❌ لطفاً دلیل رد شدن این درخواست را وارد کنید:")
 
         def process_reason(message):
             reason = message.text.strip()
             safe_send_message(request["user_id"], f"❌ درخواستت رد شد.\n📝 دلیل: {reason}")
             pending_requests.remove(request)
-            bot.send_message(chat_id, "✅ درخواست با موفقیت رد شد.", reply_markup=keyboard_markup)
+            bot.send_message(call.message.chat.id, "✅ درخواست با موفقیت رد شد.", reply_markup=keyboard_markup)
 
         bot.register_next_step_handler(msg, process_reason)
 
-
+# ____________________________________UTIL________________________________________
 def safe_send_message(chat_id, text, **kwargs):
     try:
         bot.send_message(chat_id, text, **kwargs)
@@ -358,4 +248,5 @@ def safe_send_message(chat_id, text, **kwargs):
         else:
             print(f"⚠️ خطا در ارسال پیام به {chat_id}: {e}")
 
+# ____________________________________RUN________________________________________
 bot.infinity_polling()
