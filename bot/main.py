@@ -9,20 +9,30 @@ import uuid
 
 bot = telebot.TeleBot(hash)
 channel_username = "@nit_needs"  
-
+JOB_ADMIN_ID = 112911597
 #___________________________________BUTTONS________________________________________________
 buttons = [
     "🏷 فروشی", 
     "📎 درخواستی", 
-    "❓پرسش", 
-    "🏡 همخونه", 
+    "🏡 همخونه",
+    "📤ارسال جزوه و فایل",
     "🔍 گمشده", 
-    "🔎 پیدا شده", 
-    "📚فایل‌های درسی",
+    "🔎 پیدا شده",
+    "💡فرصت شغلی",
     "📩 اطلاعات اساتید", 
     "📈 تبلیغات", 
     "📞 ارتباط با ادمین", 
 ]
+
+
+home_button= [
+    "👧همخونه دختر",
+    "👦همخونه پسر",
+    "🔙 بازگشت"
+]
+home_keyboard = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
+home_keyboard.add(*home_button)
+
 keyboard_markup = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
 keyboard_markup.add(*buttons)
 
@@ -51,6 +61,15 @@ def check_channel_membership(user_id):
     except Exception as e:
         return False
     
+def timeout_message(chat_id):
+    if chat_id in user_states:
+        del user_states[chat_id]
+        bot.send_message(
+            chat_id,
+            "⏰ زمان شما برای ارسال درخواست به پایان رسید. دوباره امتحان کنید.",
+            reply_markup=keyboard_markup
+        )
+            
 def send_subscription_prompt(chat_id):
     markup = InlineKeyboardMarkup()
     subscribe_button = InlineKeyboardButton("🔗 عضویت در کانال", url="https://t.me/nit_needs")
@@ -123,7 +142,6 @@ def back_to_main(message):
         del timers[chat_id]
     
     bot.send_message(chat_id, "به صفحه اصلی بازگشتید.", reply_markup=keyboard_markup)
-
 
 import time
 
@@ -204,8 +222,7 @@ def process_user_message(message):
     user_message = message.text
     hashtag = user_states[chat_id]["hashtag"]
     
-    final_message = f"❓{user_message}" if hashtag == "#پرسش" else f"{hashtag}\n{user_message}"
-    
+    final_message = f"❓{user_message}" if hashtag == "#درخواستی" else f"{hashtag}\n{user_message}"
     request_id = str(uuid.uuid4())
 
     pending_requests.append({
@@ -216,22 +233,32 @@ def process_user_message(message):
         "approved": False
     })
 
-    notification_timer = Timer(3600, notify_admin, args=[request_id])
-    notification_timer.start()
-    
-    timers[f"notify_{request_id}"] = notification_timer
+    if hashtag == "#فرصت_شغلی":
+        target_admins = [JOB_ADMIN_ID]
+    else:
+        target_admins = admin_roles.keys()
 
-    bot.reply_to(message, "درخواست شما با موفقیت برای ادمین ارسال شد. در صورت تایید در کانال منتشر می‌شود.")
+    for admin_id in target_admins:
+        try:
+            markup = InlineKeyboardMarkup()
+            accept_button = InlineKeyboardButton("✅ تایید", callback_data=f"accept_{request_id}")
+            reject_button = InlineKeyboardButton("❌ رد", callback_data=f"reject_{request_id}")
+            markup.add(accept_button, reject_button)
+
+            bot.send_message(admin_id, f"درخواست جدید:\n{final_message}", reply_markup=markup)
+        except Exception as e:
+            print(f"خطا در ارسال به ادمین {admin_id}: {e}")
+
+    bot.reply_to(message, "درخواست شما با موفقیت برای بررسی ارسال شد.")
     del user_states[chat_id]
-
 
 @bot.message_handler()
 def main(message):
     chat_id = message.chat.id
-    if message.text in ["📚فایل‌های درسی", "📩 اطلاعات اساتید", "📈 تبلیغات", "📞 ارتباط با ادمین"]:
+    if message.text in ["📤ارسال جزوه و فایل", "📩 اطلاعات اساتید", "📈 تبلیغات", "📞 ارتباط با ادمین"]:
         if check_channel_membership(chat_id):
-            if message.text == "📚فایل‌های درسی":
-                bot.send_message(chat_id, "فایل‌های درسی", reply_markup=faculty_markup)
+            if message.text == "📤ارسال جزوه و فایل":
+                bot.send_message(chat_id, text_send, reply_markup=back_markup)
             elif message.text == "📩 اطلاعات اساتید":
                 bot.send_message(chat_id, "در مورد استاد کدوم دانشکده میخوای اطلاعات بدم؟", reply_markup=faculty_markup)
             elif message.text == "📈 تبلیغات":
@@ -246,18 +273,24 @@ def main(message):
         
     elif message.text == "🏷 فروشی":
         handle_request(message, "#فروشی", text_foroshi)
-        
-    elif message.text == "❓پرسش":
-        handle_request(message, "#پرسش", text_porsesh)
-        
+    
     elif message.text == "🏡 همخونه":
-        handle_request(message, "#همخونه", text_hamkhoone)
+        bot.send_message(chat_id, "لطفاً انتخاب کنید:", reply_markup=home_keyboard)
+
+    elif message.text == "👧همخونه دختر":
+        handle_request(message, "#همخونه_دختر", "لطفاً متن درخواست همخونه دختر خود را وارد کنید:")
+
+    elif message.text == "👦همخونه پسر":
+        handle_request(message, "#همخونه_پسر", "لطفاً متن درخواست همخونه پسر خود را وارد کنید:")
 
     elif message.text == "🔍 گمشده":
         handle_request(message, "#گمشده", text_gomshode)
 
     elif message.text == "🔎 پیدا شده":
         handle_request(message, "#پیدا_شده", text_peyda_shode)
+
+    elif message.text == "💡فرصت شغلی":
+        handle_request(message, "#فرصت_شغلی", text_job)
 
     elif message.text == "برق و کامپیوتر":
         bot.send_message(message.chat.id, bargh_facility)
@@ -285,6 +318,10 @@ def handle_admin_action(call):
         bot.answer_callback_query(call.id, "❗ درخواست پیدا نشد یا قبلاً رسیدگی شده.")
         return
 
+    if request["hashtag"] == "#فرصت_شغلی" and call.from_user.id != JOB_ADMIN_ID:
+        bot.answer_callback_query(call.id, "⛔ شما مجاز به مدیریت فرصت‌های شغلی نیستید.")
+        return
+
     timer_key = f"notify_{request_id}"
     if timer_key in timers:
         timers[timer_key].cancel()
@@ -310,6 +347,7 @@ def handle_admin_action(call):
             bot.send_message(chat_id, "✅ درخواست با موفقیت رد شد.", reply_markup=keyboard_markup)
 
         bot.register_next_step_handler(msg, process_reason)
+
 
 def safe_send_message(chat_id, text, **kwargs):
     try:
