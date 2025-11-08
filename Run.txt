@@ -1,0 +1,2 @@
+source /home/leminsco/virtualenv/GeoNit/3.11/bin/activate
+nohup python /home/leminsco/Mysourse/main.py

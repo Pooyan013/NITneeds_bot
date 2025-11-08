@@ -2,12 +2,13 @@ import telebot
 from telebot.types import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
 from threading import Timer
 from keys import *
-from database import add_or_update_user, get_all_users
-import time
+from database import add_or_update_user, get_all_users, Session, User, RequestLimit
 from hash import hash
 import uuid
-import json
 import os
+import time
+from sqlalchemy.exc import SQLAlchemyError
+import time
 
 bot = telebot.TeleBot(hash)
 channel_username = "@nit_needs"  
@@ -53,31 +54,50 @@ back_markup.add(*back)
 pending_requests = []
 user_states = {}
 
-
-REQUESTS_FILE = "user_requests.json"
-
-if os.path.exists("user_request_limits.json"):
-    with open("user_request_limits.json", "r", encoding="utf-8") as f:
-        user_request_limits = json.load(f)
-else:
-    user_request_limits = {}
-
-user_requests_data = {}
-LIMIT_PERIOD = 90 * 24 * 60 * 60
+LIMIT_PERIOD = 90 * 24 * 60 * 60  
 MAX_REQUESTS = 10
 
-def save_user_limits():
-    with open("user_request_limits.json", "w", encoding="utf-8") as f:
-        json.dump(user_request_limits, f, ensure_ascii=False, indent=2)
-
-
-def save_user_requests():
-    with open(REQUESTS_FILE, "w", encoding="utf-8") as f:
-        json.dump(user_requests_data, f, ensure_ascii=False, indent=2)
 
 last_request_times = {}
-timers = {} 
+timers = {}
+user_requests_data = {} 
 #____________________________________Verfication FUNCTION________________________________________
+def load_user_requests():
+    global user_requests_data
+    with Session() as session:
+        limits = session.query(RequestLimit).all()
+        user_requests_data = {limit.user_id: {"timestamps": limit.timestamps or []} for limit in limits}
+
+load_user_requests()
+
+def can_send_request_db(user_id):
+    now = time.time()
+    user_data = user_requests_data.get(user_id, {"timestamps": []})
+    user_data["timestamps"] = [t for t in user_data["timestamps"] if now - t < LIMIT_PERIOD]
+    user_requests_data[user_id] = user_data
+
+    if len(user_data["timestamps"]) >= MAX_REQUESTS:
+        remaining_days = int((LIMIT_PERIOD - (now - user_data["timestamps"][0])) / (24*60*60))
+        return False, remaining_days
+
+    return True, MAX_REQUESTS - len(user_data["timestamps"])
+
+
+def register_request(user_id):
+    now = time.time()
+    user_data = user_requests_data.get(user_id, {"timestamps": []})
+    user_data["timestamps"].append(now)
+    user_requests_data[user_id] = user_data
+    save_user_requests()
+
+def remove_limit(user_id):
+    with Session() as session:
+        limit = session.query(RequestLimit).filter_by(user_id=user_id).first()
+        if limit:
+            session.delete(limit)
+            session.commit()
+    if user_id in user_requests_data:
+        user_requests_data[user_id]["timestamps"] = []
 
 def check_channel_membership(user_id):
     try:
@@ -167,7 +187,6 @@ def back_to_main(message):
 
     bot.send_message(chat_id, "به صفحه اصلی بازگشتید.", reply_markup=keyboard_markup)
 
-import time
 
 @bot.message_handler(commands=["broadcast"])
 def broadcast_message(message):
@@ -207,11 +226,17 @@ def send_welcome(message):
 def handle_request(message, hashtag, instruction_text):
     chat_id = message.chat.id
 
+    if chat_id in admin_roles:
+        bot.send_message(chat_id, "✅ شما به عنوان ادمین می‌توانید بدون محدودیت درخواست ارسال کنید.")
+        bot.send_message(chat_id, instruction_text, reply_markup=back_markup)
+        user_states[chat_id] = {"state": "waiting_for_message", "hashtag": hashtag}
+        return
+
     if not check_channel_membership(chat_id):
         send_subscription_prompt(chat_id)
         return
-
-    allowed, count_or_days = can_send_request(chat_id)
+    
+    allowed, count_or_days = can_send_request_db(chat_id)
     if not allowed:
         bot.send_message(chat_id, f"⛔ محدودیت ارسال درخواست تمام شده. لطفاً بعد از {count_or_days} روز دوباره تلاش کنید.")
         return
@@ -228,38 +253,74 @@ def handle_request(message, hashtag, instruction_text):
 
     last_request_times[chat_id] = now
 
+    if chat_id in timers:
+        timers[chat_id].cancel()
+        del timers[chat_id]
+
     timer = Timer(120, timeout_message, [chat_id])
     timer.start()
     timers[chat_id] = timer
 
-def update_user_request_count(chat_id):
-    now = time.time()
-    data = user_request_limits.get(chat_id)
 
-    if not data:
-        user_request_limits[chat_id] = {
-            "requests_count": MAX_REQUESTS - 1,
-            "first_request_time": now
-        }
-    else:
-        elapsed = now - data["first_request_time"]
-        if elapsed > LIMIT_PERIOD:
-            data["requests_count"] = MAX_REQUESTS - 1
-            data["first_request_time"] = now
+@bot.message_handler(commands=['unlimit'])
+def unlimit_user(message):
+    if message.chat.id not in admin_roles:
+        bot.reply_to(message, "⛔ شما اجازه انجام این کار را ندارید.")
+        return
+
+    parts = message.text.split()
+    if len(parts) != 2 or not parts[1].isdigit():
+        bot.reply_to(message, "⚙️ لطفاً به‌صورت صحیح وارد کنید:\n/unlimit [user_id]")
+        return
+
+    target_id = int(parts[1])
+    remove_limit(target_id)
+    bot.reply_to(message, f"✅ محدودیت کاربر با شناسه {target_id} با موفقیت حذف شد.")
+
+def save_user_requests():
+    with Session() as session:
+        for chat_id, data in user_requests_data.items():
+            limit = session.query(RequestLimit).filter_by(user_id=chat_id).first()
+            if not limit:
+                limit = RequestLimit(user_id=chat_id, timestamps=data.get("timestamps", []))
+                session.add(limit)
+            else:
+                existing_ts = set(limit.timestamps or [])
+                new_ts = set(data.get("timestamps", []))
+                limit.timestamps = list(existing_ts.union(new_ts))
+        session.commit()
+
+
+
+def update_user_request_count_db(user_id):
+    with Session() as session:
+        limit = session.query(RequestLimit).filter_by(user_id=user_id).first()
+        now = time.time()
+
+        if not limit:
+            limit = RequestLimit(user_id=user_id, requests_count=MAX_REQUESTS - 1, first_request_time=now)
+            session.add(limit)
         else:
-            data["requests_count"] -= 1
+            elapsed = now - limit.first_request_time
+            if elapsed > LIMIT_PERIOD:
+                limit.requests_count = MAX_REQUESTS - 1
+                limit.first_request_time = now
+            else:
+                limit.requests_count -= 1
 
-    save_user_limits()
+        session.commit()
 
-def get_remaining_requests(chat_id):
-    data = user_request_limits.get(chat_id)
-    if not data:
-        return MAX_REQUESTS
+def get_remaining_requests_db(user_id):
     now = time.time()
-    elapsed = now - data["first_request_time"]
-    if elapsed > LIMIT_PERIOD:
-        return MAX_REQUESTS
-    return data["requests_count"]
+    with Session() as session:
+        request_limit = session.query(RequestLimit).filter_by(user_id=user_id).first()
+        if not request_limit:
+            return MAX_REQUESTS
+
+        elapsed = now - request_limit.first_request_time
+        if elapsed > LIMIT_PERIOD:
+            return MAX_REQUESTS
+        return request_limit.requests_count
 
 
 def notify_admin(request_id):
@@ -275,6 +336,28 @@ def notify_admin(request_id):
 
 @bot.message_handler(func=lambda message: message.chat.id in user_states and user_states[message.chat.id]["state"] == "waiting_for_message")
 def process_user_message(message):
+
+    chat_id = int(message.chat.id)
+
+    if chat_id in admin_roles:
+        remaining_requests = "∞"
+    else:
+        user_data = user_requests_data.get(chat_id, {"timestamps": []})
+        now = time.time()
+        user_data["timestamps"] = [t for t in user_data["timestamps"] if now - t < LIMIT_PERIOD]
+
+        if len(user_data["timestamps"]) >= MAX_REQUESTS:
+            remaining_time = int((LIMIT_PERIOD - (now - user_data["timestamps"][0])) / (24*60*60))
+            bot.send_message(message.chat.id, 
+                f"""⛔ 📌تعداد درخواستی‌های شما به پایان رسیده‌است.
+                تا شارژ مجدد پیام‌های شما:{remaining_time}
+
+                💡محدودیت پیام‌های درخواستی فقط و فقط جهت جلوگیری از ترافیک پیام‌ها و ترغیب شما به جستجو در کانال قبل از ارسال درخواستی می‌باشد(بسیاری از درخواستی‌ها تکراری بوده و با یک جستجوی ساده پیدا خواهند شد).
+
+                سپاس از همکاری شما❤️"""
+                )
+            return
+
     chat_id = int(message.chat.id)  
     user_message = message.text
     state = user_states.get(chat_id)
@@ -290,7 +373,14 @@ def process_user_message(message):
 
     if len(user_data["timestamps"]) >= MAX_REQUESTS:
         remaining_time = int((LIMIT_PERIOD - (now - user_data["timestamps"][0])) / (24*60*60))
-        bot.send_message(message.chat.id, f"⛔ محدودیت درخواست‌های شما پر شده است. {remaining_time} روز دیگر دوباره می‌توانید درخواست دهید.")
+        bot.send_message(message.chat.id, 
+                            f"""⛔ 📌تعداد درخواستی‌های شما به پایان رسیده‌است.
+                            تا شارژ مجدد پیام‌های شما:{remaining_time}
+
+                            💡محدودیت پیام‌های درخواستی فقط و فقط جهت جلوگیری از ترافیک پیام‌ها و ترغیب شما به جستجو در کانال قبل از ارسال درخواستی می‌باشد(بسیاری از درخواستی‌ها تکراری بوده و با یک جستجوی ساده پیدا خواهند شد).
+
+                            سپاس از همکاری شما❤️"""
+                            )
         return
 
     if any(r["user_id"] == message.chat.id and not r["approved"] for r in pending_requests):
@@ -312,12 +402,20 @@ def process_user_message(message):
         "admin_messages": {}
     })
 
-    user_data["timestamps"].append(now)
-    user_requests_data[chat_id] = user_data
-    save_user_requests()
 
-    remaining_requests = MAX_REQUESTS - len(user_data["timestamps"])
-    bot.send_message(message.chat.id, f"✅ درخواست شما ثبت شد. تعداد درخواست‌های باقی‌مانده شما: {remaining_requests}")
+    if chat_id not in admin_roles:
+        register_request(chat_id)
+        remaining_requests = MAX_REQUESTS - len(user_requests_data[chat_id]["timestamps"])
+        bot.send_message(chat_id, 
+            f"""✅ درخواست شما ثبت شد و پس از تایید در کانال قرار خواهد گرفت.
+    تعداد درخواست‌های باقی‌مانده شما: {remaining_requests}
+
+    💡محدودیت پیام‌های درخواستی فقط و فقط جهت جلوگیری از ترافیک پیام‌ها و ترغیب شما به جستجو در کانال قبل از ارسال درخواستی می‌باشد (بسیاری از درخواستی‌ها تکراری بوده و با یک جستجوی ساده پیدا خواهند شد).
+
+    سپاس از همکاری شما❤️"""
+        )
+
+
 
     user_states.pop(message.chat.id, None)
 
@@ -417,7 +515,11 @@ def handle_admin_action(call):
 
     chat_id = call.message.chat.id
 
-    bot.edit_message_reply_markup(chat_id=chat_id, message_id=call.message.message_id, reply_markup=None)
+    for admin_id, msg_id in request["admin_messages"].items():
+        try:
+            bot.edit_message_reply_markup(chat_id=admin_id, message_id=msg_id, reply_markup=None)
+        except Exception as e:
+            print(f"خطا در حذف دکمه‌ها از پیام {admin_id}: {e}")
 
     if action == "accept":
         bot.send_message(channel_username, f"{request['message']}\n")
@@ -469,31 +571,6 @@ def process_rejection_reason(message):
     if request in pending_requests:
         pending_requests.remove(request)
 
-def can_send_request(chat_id):
-    now = time.time()
-    data = user_request_limits.get(chat_id)
-
-    if not data:
-        user_request_limits[chat_id] = {
-            "requests_count": MAX_REQUESTS,
-            "first_request_time": now
-        }
-        save_user_limits()
-        return True, MAX_REQUESTS
-
-    elapsed = now - data["first_request_time"]
-
-    if elapsed > LIMIT_PERIOD:
-        data["requests_count"] = MAX_REQUESTS
-        data["first_request_time"] = now
-        save_user_limits()
-        return True, MAX_REQUESTS
-
-    if data["requests_count"] <= 0:
-        remaining_days = int((LIMIT_PERIOD - elapsed) / (24*60*60))
-        return False, remaining_days
-
-    return True, data["requests_count"]
 
 
 def safe_send_message(chat_id, text, **kwargs):
