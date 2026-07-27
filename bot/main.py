@@ -489,26 +489,37 @@ def handle_admin_action(call):
     chat_id = call.message.chat.id
 
     if action == "accept":
-        for admin_id, msg_id in request["admin_messages"].items():
+        for admin_chat_id, msg_id in request["admin_messages"].items():
             try:
-                admin_id = call.from_user.id
-                user_id = request["user_id"]
+                admin_username = (
+                    f"@{call.from_user.username}"
+                    if call.from_user.username
+                    else str(call.from_user.id)
+                )
+
+                user_username = (
+                    f"@{request['username']}"
+                    if request["username"]
+                    else str(request["user_id"])
+                )
 
                 text = (
                     "✅ تایید شد توسط ادمین\n\n"
-                    f"ایدی ادمین: {admin_id}\n"
-                    f"ایدی کاربر: {user_id}\n\n"
+                    f"👮 ادمین: {admin_username}\n"
+                    f"👤 کاربر: {user_username}\n\n"
                     f"{request['message']}"
                 )
 
                 bot.edit_message_text(
-                    text,
-                    chat_id=admin_id,
+                    text=text,
+                    chat_id=admin_chat_id,
                     message_id=msg_id,
                     reply_markup=None
-                )            
+                )
+
             except Exception:
-                    pass
+                pass     
+
                 
         bot.send_message(channel_username, f"{request['message']}\n")
         safe_send_message(request["user_id"], "✅ درخواستت تایید شد و در کانال منتشر شد.")
@@ -543,28 +554,37 @@ def process_rejection_reason(message):
     safe_send_message(request["user_id"], f"❌ درخواستت رد شد.\n📝 دلیل: {reason}")
     bot.send_message(chat_id, "✅ درخواست با موفقیت رد شد.", reply_markup=keyboard_markup)
     
-    for admin_id, msg_id in request["admin_messages"].items():
+    for admin_chat_id, msg_id in request["admin_messages"].items():
         try:
-            admin_id = message.chat.id
-            user_id = request["user_id"]
+            admin_username = (
+                f"@{message.from_user.username}"
+                if message.from_user.username
+                else str(message.from_user.id)
+            )
+
+            user_username = (
+                f"@{request['username']}"
+                if request["username"]
+                else str(request["user_id"])
+            )
 
             text = (
                 "❌ رد شد توسط ادمین\n\n"
-                f"ایدی ادمین: {admin_id}\n"
-                f"ایدی کاربر: {user_id}\n"
-                f" دلیل: {reason}\n\n"
+                f"👮 ادمین: {admin_username}\n"
+                f"👤 کاربر: {user_username}\n"
+                f"📝 دلیل: {reason}\n\n"
                 f"{request['message']}"
             )
 
             bot.edit_message_text(
-                text,
-                chat_id=admin_id,
+                text=text,
+                chat_id=admin_chat_id,
                 message_id=msg_id,
                 reply_markup=None
             )
+
         except Exception:
             pass
-
     if request in pending_requests:
         pending_requests.remove(request)
 
