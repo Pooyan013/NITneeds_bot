@@ -1,2 +1,4 @@
 source /home/leminsco/virtualenv/GeoNit/3.11/bin/activate
 nohup python /home/leminsco/Mysourse/main.py
+
+source /home/leminsc1/virtualenv/src/NIT_needs/3.12/bin/activate && cd /home/leminsc1/src/NIT_needs

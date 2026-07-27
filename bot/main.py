@@ -2,18 +2,44 @@ import telebot
 from telebot.types import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
 from threading import Timer
 from keys import *
-from database import add_or_update_user, get_all_users, Session, User, RequestLimit
 from hash import hash
 import uuid
 import os
 import time
+from sqlalchemy import create_engine, Column, Integer, String, JSON, ForeignKey
+from sqlalchemy.orm import declarative_base, sessionmaker, relationship
 from sqlalchemy.exc import SQLAlchemyError
-import time
+from sqlalchemy.orm.attributes import flag_modified
+
+engine = create_engine('sqlite:///users.db', echo=False, connect_args={'check_same_thread': False})
+Session = sessionmaker(bind=engine)
+Base = declarative_base()
+
+class User(Base):
+    __tablename__ = 'users'
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, unique=True)
+    username = Column(String)
+    full_name = Column(String)
+    usage_count = Column(Integer, default=0)
+    request_limit = relationship("RequestLimit", back_populates="user", uselist=False)
+
+class RequestLimit(Base):
+    __tablename__ = 'request_limits'
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey('users.user_id'), unique=True)
+    timestamps = Column(JSON, default=list)
+    user = relationship("User", back_populates="request_limit")
+
+Base.metadata.create_all(engine)
 
 bot = telebot.TeleBot(hash)
 channel_username = "@nit_needs"  
 JOB_ADMIN_ID = 112911597
-#___________________________________BUTTONS________________________________________________
+
+LIMIT_PERIOD = 90 * 24 * 60 * 60  
+MAX_REQUESTS = 10
+
 buttons = [
     "🏷 فروشی", 
     "❓ درخواستی", 
@@ -26,7 +52,6 @@ buttons = [
     "📈 تبلیغات", 
     "📞 ارتباط با ادمین", 
 ]
-
 
 home_button= [
     "👧همخونه دختر",
@@ -53,15 +78,10 @@ back_markup.add(*back)
 
 pending_requests = []
 user_states = {}
-
-LIMIT_PERIOD = 90 * 24 * 60 * 60  
-MAX_REQUESTS = 10
-
-
 last_request_times = {}
 timers = {}
 user_requests_data = {} 
-#____________________________________Verfication FUNCTION________________________________________
+
 def load_user_requests():
     global user_requests_data
     with Session() as session:
@@ -69,6 +89,35 @@ def load_user_requests():
         user_requests_data = {limit.user_id: {"timestamps": limit.timestamps or []} for limit in limits}
 
 load_user_requests()
+
+def add_or_update_user(user_id, username, full_name):
+    with Session() as session:
+        user = session.query(User).filter_by(user_id=user_id).first()
+        if user:
+            user.username = username
+            user.full_name = full_name
+            user.usage_count += 1
+        else:
+            user = User(user_id=user_id, username=username, full_name=full_name, usage_count=1)
+            session.add(user)
+        session.commit()
+
+def get_all_users():
+    with Session() as session:
+        return session.query(User).all()
+
+def save_user_requests():
+    with Session() as session:
+        for chat_id, data in user_requests_data.items():
+            limit = session.query(RequestLimit).filter_by(user_id=chat_id).first()
+            new_ts = list(data.get("timestamps", []))
+            if not limit:
+                limit = RequestLimit(user_id=chat_id, timestamps=new_ts)
+                session.add(limit)
+            else:
+                limit.timestamps = new_ts
+                flag_modified(limit, "timestamps")
+        session.commit()
 
 def can_send_request_db(user_id):
     now = time.time()
@@ -81,7 +130,6 @@ def can_send_request_db(user_id):
         return False, remaining_days
 
     return True, MAX_REQUESTS - len(user_data["timestamps"])
-
 
 def register_request(user_id):
     now = time.time()
@@ -103,7 +151,7 @@ def check_channel_membership(user_id):
     try:
         status = bot.get_chat_member(channel_username, user_id).status
         return status in ['member', 'administrator', 'creator']
-    except Exception as e:
+    except Exception:
         return False
     
 def timeout_message(chat_id):
@@ -131,7 +179,6 @@ def check_subscription(call):
     else:
         bot.answer_callback_query(call.id, "هنوز عضو کانال نیستید. لطفاً ابتدا عضو شوید.")
 
-#____________________________________HANDLERS_____________________________________________
 
 admin_roles = {
     112911597: "all", 
@@ -205,8 +252,8 @@ def send_broadcast(message):
         try:
             bot.copy_message(chat_id=user.user_id, from_chat_id=from_chat_id, message_id=message_id)
             time.sleep(0.1)
-        except Exception as e:
-            print(f"خطا در ارسال پیام به کاربر {user.user_id}: {e}")
+        except Exception:
+            pass
     
     bot.send_message(message.chat.id, "پیام شما با موفقیت به تمام کاربران ارسال شد.")
 
@@ -219,8 +266,7 @@ def send_welcome(message):
     
     add_or_update_user(chat_id, username, full_name)
     
-    bot.send_message(chat_id, f"""سلام به ربات نیازمندی‌ها خوش اومدی 🩷
-چطوری میتونم بهت کمک کنم؟""", reply_markup=keyboard_markup)
+    bot.send_message(chat_id, "سلام به ربات نیازمندی‌ها خوش اومدی 🩷\nچطوری میتونم بهت کمک کنم؟", reply_markup=keyboard_markup)
 
 
 def handle_request(message, hashtag, instruction_text):
@@ -248,9 +294,7 @@ def handle_request(message, hashtag, instruction_text):
         return
 
     bot.send_message(chat_id, instruction_text, reply_markup=back_markup)
-
     user_states[chat_id] = {"state": "waiting_for_message", "hashtag": hashtag}
-
     last_request_times[chat_id] = now
 
     if chat_id in timers:
@@ -277,114 +321,45 @@ def unlimit_user(message):
     remove_limit(target_id)
     bot.reply_to(message, f"✅ محدودیت کاربر با شناسه {target_id} با موفقیت حذف شد.")
 
-def save_user_requests():
-    with Session() as session:
-        for chat_id, data in user_requests_data.items():
-            limit = session.query(RequestLimit).filter_by(user_id=chat_id).first()
-            if not limit:
-                limit = RequestLimit(user_id=chat_id, timestamps=data.get("timestamps", []))
-                session.add(limit)
-            else:
-                existing_ts = set(limit.timestamps or [])
-                new_ts = set(data.get("timestamps", []))
-                limit.timestamps = list(existing_ts.union(new_ts))
-        session.commit()
 
-
-
-def update_user_request_count_db(user_id):
-    with Session() as session:
-        limit = session.query(RequestLimit).filter_by(user_id=user_id).first()
-        now = time.time()
-
-        if not limit:
-            limit = RequestLimit(user_id=user_id, requests_count=MAX_REQUESTS - 1, first_request_time=now)
-            session.add(limit)
-        else:
-            elapsed = now - limit.first_request_time
-            if elapsed > LIMIT_PERIOD:
-                limit.requests_count = MAX_REQUESTS - 1
-                limit.first_request_time = now
-            else:
-                limit.requests_count -= 1
-
-        session.commit()
-
-def get_remaining_requests_db(user_id):
-    now = time.time()
-    with Session() as session:
-        request_limit = session.query(RequestLimit).filter_by(user_id=user_id).first()
-        if not request_limit:
-            return MAX_REQUESTS
-
-        elapsed = now - request_limit.first_request_time
-        if elapsed > LIMIT_PERIOD:
-            return MAX_REQUESTS
-        return request_limit.requests_count
-
-
-def notify_admin(request_id):
-    request_exists = any(req['request_id'] == request_id for req in pending_requests)
-    
-    if request_exists:
-        for admin_id in admin_roles:
-            try:
-                bot.send_message(admin_id, "یک درخواست بیش از یک ساعت است که بدون پاسخ باقی مانده است.")
-            except Exception as e:
-                print(f"Failed to notify admin {admin_id}: {e}")
+def safe_send_message(chat_id, text, **kwargs):
+    try:
+        bot.send_message(chat_id, text, **kwargs)
+    except telebot.apihelper.ApiTelegramException:
+        pass
 
 
 @bot.message_handler(func=lambda message: message.chat.id in user_states and user_states[message.chat.id]["state"] == "waiting_for_message")
 def process_user_message(message):
-
     chat_id = int(message.chat.id)
 
-    if chat_id in admin_roles:
-        remaining_requests = "∞"
-    else:
+    if chat_id not in admin_roles:
         user_data = user_requests_data.get(chat_id, {"timestamps": []})
         now = time.time()
         user_data["timestamps"] = [t for t in user_data["timestamps"] if now - t < LIMIT_PERIOD]
 
         if len(user_data["timestamps"]) >= MAX_REQUESTS:
             remaining_time = int((LIMIT_PERIOD - (now - user_data["timestamps"][0])) / (24*60*60))
-            bot.send_message(message.chat.id, 
-                f"""⛔ 📌تعداد درخواستی‌های شما به پایان رسیده‌است.
-                تا شارژ مجدد پیام‌های شما:{remaining_time}
-
-                💡محدودیت پیام‌های درخواستی فقط و فقط جهت جلوگیری از ترافیک پیام‌ها و ترغیب شما به جستجو در کانال قبل از ارسال درخواستی می‌باشد(بسیاری از درخواستی‌ها تکراری بوده و با یک جستجوی ساده پیدا خواهند شد).
-
-                سپاس از همکاری شما❤️"""
-                )
+            bot.send_message(chat_id, 
+                f"⛔ 📌تعداد درخواستی‌های شما به پایان رسیده‌است.\n"
+                f"تا شارژ مجدد پیام‌های شما:{remaining_time} روز\n\n"
+                f"💡محدودیت پیام‌های درخواستی فقط و فقط جهت جلوگیری از ترافیک پیام‌ها و ترغیب شما به جستجو در کانال قبل از ارسال درخواستی می‌باشد(بسیاری از درخواستی‌ها تکراری بوده و با یک جستجوی ساده پیدا خواهند شد).\n\n"
+                f"سپاس از همکاری شما❤️"
+            )
+            user_states.pop(chat_id, None)
+            if chat_id in timers:
+                timers[chat_id].cancel()
+                del timers[chat_id]
             return
 
-    chat_id = int(message.chat.id)  
     user_message = message.text
     state = user_states.get(chat_id)
     if not state:
         return
     hashtag = state["hashtag"]
 
-
-    user_data = user_requests_data.get(chat_id, {"timestamps": []})
-    now = time.time()
-
-    user_data["timestamps"] = [t for t in user_data["timestamps"] if now - t < LIMIT_PERIOD]
-
-    if len(user_data["timestamps"]) >= MAX_REQUESTS:
-        remaining_time = int((LIMIT_PERIOD - (now - user_data["timestamps"][0])) / (24*60*60))
-        bot.send_message(message.chat.id, 
-                            f"""⛔ 📌تعداد درخواستی‌های شما به پایان رسیده‌است.
-                            تا شارژ مجدد پیام‌های شما:{remaining_time}
-
-                            💡محدودیت پیام‌های درخواستی فقط و فقط جهت جلوگیری از ترافیک پیام‌ها و ترغیب شما به جستجو در کانال قبل از ارسال درخواستی می‌باشد(بسیاری از درخواستی‌ها تکراری بوده و با یک جستجوی ساده پیدا خواهند شد).
-
-                            سپاس از همکاری شما❤️"""
-                            )
-        return
-
-    if any(r["user_id"] == message.chat.id and not r["approved"] for r in pending_requests):
-        bot.send_message(message.chat.id, "⛔ شما قبلاً یک درخواست ارسال کردید که هنوز بررسی نشده.")
+    if any(r["user_id"] == chat_id and not r["approved"] for r in pending_requests):
+        bot.send_message(chat_id, "⛔ شما قبلاً یک درخواست ارسال کردید که هنوز بررسی نشده.")
         return
 
     final_message = f"❓{user_message}" if hashtag == "#درخواستی" else f"{hashtag}\n{user_message}"
@@ -392,7 +367,7 @@ def process_user_message(message):
 
     pending_requests.append({
         "request_id": request_id,
-        "user_id": message.chat.id,
+        "user_id": chat_id,
         "message": final_message,
         "hashtag": hashtag,
         "approved": False,
@@ -402,45 +377,39 @@ def process_user_message(message):
         "admin_messages": {}
     })
 
-
     if chat_id not in admin_roles:
         register_request(chat_id)
         remaining_requests = MAX_REQUESTS - len(user_requests_data[chat_id]["timestamps"])
         bot.send_message(chat_id, 
-            f"""✅ درخواست شما ثبت شد و پس از تایید در کانال قرار خواهد گرفت.
-    تعداد درخواست‌های باقی‌مانده شما: {remaining_requests}
-
-    💡محدودیت پیام‌های درخواستی فقط و فقط جهت جلوگیری از ترافیک پیام‌ها و ترغیب شما به جستجو در کانال قبل از ارسال درخواستی می‌باشد (بسیاری از درخواستی‌ها تکراری بوده و با یک جستجوی ساده پیدا خواهند شد).
-
-    سپاس از همکاری شما❤️"""
+            f"✅ درخواست شما ثبت شد و پس از تایید در کانال قرار خواهد گرفت.\n"
+            f"تعداد درخواست‌های باقی‌مانده شما: {remaining_requests}\n\n"
+            f"💡محدودیت پیام‌های درخواستی فقط و فقط جهت جلوگیری از ترافیک پیام‌ها و ترغیب شما به جستجو در کانال قبل از ارسال درخواستی می‌باشد (بسیاری از درخواستی‌ها تکراری بوده و با یک جستجوی ساده پیدا خواهند شد).\n\n"
+            f"سپاس از همکاری شما❤️"
         )
 
-
-
-    user_states.pop(message.chat.id, None)
+    user_states.pop(chat_id, None)
+    if chat_id in timers:
+        timers[chat_id].cancel()
+        del timers[chat_id]
 
     if hashtag == "#فرصت_شغلی":
         target_admins = [JOB_ADMIN_ID]
     else:
         target_admins = admin_roles.keys()
 
+    sender_info = f"👤 فرستنده: @{message.from_user.username}" if message.from_user.username else f"👤 فرستنده: {message.from_user.first_name} {message.from_user.last_name or ''}"
+
     for admin_id in target_admins:
         try:
-            if admin_id in pending_requests[-1]["admin_messages"]:
-                continue
-
             markup = InlineKeyboardMarkup()
             accept_button = InlineKeyboardButton("✅ تایید", callback_data=f"accept_{request_id}")
             reject_button = InlineKeyboardButton("❌ رد", callback_data=f"reject_{request_id}")
             markup.add(accept_button, reject_button)
 
-            sender_info = f"👤 فرستنده: @{message.from_user.username}" if message.from_user.username else f"👤 فرستنده: {message.from_user.first_name} {message.from_user.last_name or ''}"
-
             sent_msg = bot.send_message(admin_id, f"{sender_info}\n\nدرخواست جدید:\n{final_message}", reply_markup=markup)
             pending_requests[-1]["admin_messages"][admin_id] = sent_msg.message_id
-
-        except Exception as e:
-            print(f"خطا در ارسال به ادمین {admin_id}: {e}")
+        except Exception:
+            pass
 
 
 @bot.message_handler()
@@ -449,21 +418,26 @@ def main(message):
     if message.text in ["📤ارسال جزوه و فایل", "📩 اطلاعات اساتید", "📈 تبلیغات", "📞 ارتباط با ادمین"]:
         if check_channel_membership(chat_id):
             if message.text == "📤ارسال جزوه و فایل":
-                bot.send_message(chat_id, text_send, reply_markup=back_markup)
+                try: bot.send_message(chat_id, text_send, reply_markup=back_markup)
+                except NameError: bot.send_message(chat_id, "متن ارسال فایل یافت نشد.", reply_markup=back_markup)
             elif message.text == "📩 اطلاعات اساتید":
                 bot.send_message(chat_id, "در مورد استاد کدوم دانشکده میخوای اطلاعات بدم؟", reply_markup=faculty_markup)
             elif message.text == "📈 تبلیغات":
-                bot.send_message(chat_id, text_tablighat)
+                try: bot.send_message(chat_id, text_tablighat)
+                except NameError: pass
             elif message.text == "📞 ارتباط با ادمین":
-                bot.send_message(chat_id, text_admin)
+                try: bot.send_message(chat_id, text_admin)
+                except NameError: pass
         else:
             send_subscription_prompt(chat_id)
     
     elif message.text == "❓ درخواستی":
-        handle_request(message, "#درخواستی", text_darkhasti)
+        try: handle_request(message, "#درخواستی", text_darkhasti)
+        except NameError: handle_request(message, "#درخواستی", "متن درخواست خود را بنویسید:")
         
     elif message.text == "🏷 فروشی":
-        handle_request(message, "#فروشی", text_foroshi)
+        try: handle_request(message, "#فروشی", text_foroshi)
+        except NameError: handle_request(message, "#فروشی", "متن فروش خود را بنویسید:")
     
     elif message.text == "🏡 همخونه":
         bot.send_message(chat_id, "لطفاً انتخاب کنید:", reply_markup=home_keyboard)
@@ -475,30 +449,29 @@ def main(message):
         handle_request(message, "#همخونه_پسر", "لطفاً متن درخواست همخونه پسر خود را وارد کنید:")
 
     elif message.text == "🔍 گمشده":
-        handle_request(message, "#گمشده", text_gomshode)
+        try: handle_request(message, "#گمشده", text_gomshode)
+        except NameError: handle_request(message, "#گمشده", "مشخصات گمشده را بنویسید:")
 
     elif message.text == "🔎 پیدا شده":
-        handle_request(message, "#پیدا_شده", text_peyda_shode)
+        try: handle_request(message, "#پیدا_شده", text_peyda_shode)
+        except NameError: handle_request(message, "#پیدا_شده", "مشخصات پیدا شده را بنویسید:")
 
     elif message.text == "💡فرصت شغلی":
-        handle_request(message, "#فرصت_شغلی", text_job)
+        try: handle_request(message, "#فرصت_شغلی", text_job)
+        except NameError: handle_request(message, "#فرصت_شغلی", "فرصت شغلی را بنویسید:")
 
     elif message.text == "برق و کامپیوتر":
-        bot.send_message(message.chat.id, bargh_facility)
+        try: bot.send_message(message.chat.id, bargh_facility)
+        except NameError: pass
 
     elif message.text == "علوم پایه":
-        bot.send_message(message.chat.id, paye_facility)
+        try: bot.send_message(message.chat.id, paye_facility)
+        except NameError: pass
 
     elif message.text == "معارف":
-        bot.send_message(message.chat.id, maaref_facility)
+        try: bot.send_message(message.chat.id, maaref_facility)
+        except NameError: pass
 
-
-@bot.message_handler(func=lambda message: message.text == "📩 اطلاعات اساتید")
-def handle_faculty_info(message):
-    if check_channel_membership(message.chat.id):
-        bot.send_message(message.chat.id, "در مورد استاد کدوم دانشکده میخوای اطلاعات بدم؟", reply_markup=faculty_markup)
-    else:
-        send_subscription_prompt(message.chat.id)
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("accept_") or call.data.startswith("reject_"))
 def handle_admin_action(call):
@@ -515,39 +488,41 @@ def handle_admin_action(call):
 
     chat_id = call.message.chat.id
 
-    for admin_id, msg_id in request["admin_messages"].items():
-        try:
-            bot.edit_message_reply_markup(chat_id=admin_id, message_id=msg_id, reply_markup=None)
-        except Exception as e:
-            print(f"خطا در حذف دکمه‌ها از پیام {admin_id}: {e}")
-
     if action == "accept":
+        for admin_id, msg_id in request["admin_messages"].items():
+            try:
+                admin_id = call.from_user.id
+                user_id = request["user_id"]
+
+                text = (
+                    "✅ تایید شد توسط ادمین\n\n"
+                    f"ایدی ادمین: {admin_id}\n"
+                    f"ایدی کاربر: {user_id}\n\n"
+                    f"{request['message']}"
+                )
+
+                bot.edit_message_text(
+                    text,
+                    chat_id=admin_id,
+                    message_id=msg_id,
+                    reply_markup=None
+                )            
+            except Exception:
+                    pass
+                
         bot.send_message(channel_username, f"{request['message']}\n")
         safe_send_message(request["user_id"], "✅ درخواستت تایید شد و در کانال منتشر شد.")
         bot.send_message(chat_id, "✅ درخواست با موفقیت تایید شد.", reply_markup=keyboard_markup)
-
-        for admin_id, msg_id in request["admin_messages"].items():
-            try:
-                bot.edit_message_reply_markup(chat_id=admin_id, message_id=msg_id, reply_markup=None)
-            except Exception as e:
-                print(f"خطا در حذف دکمه‌ها از پیام {admin_id}: {e}")
-
+        
         if request in pending_requests:
             pending_requests.remove(request)
-
 
     elif action == "reject":
         bot.answer_callback_query(call.id, "در حال انتظار برای دلیل رد شدن...")
         msg = bot.send_message(chat_id, "❌ لطفاً دلیل رد شدن این درخواست را وارد کنید:")
-
         user_states[chat_id] = {"state": "waiting_for_rejection_reason", "request_id": request_id}
-        for admin_id, msg_id in request["admin_messages"].items():
-            try:
-                bot.edit_message_reply_markup(chat_id=admin_id, message_id=msg_id, reply_markup=None)
-            except Exception as e:
-                print(f"خطا در حذف دکمه‌ها از پیام {admin_id}: {e}")
-
         bot.register_next_step_handler(msg, process_rejection_reason)
+
 
 def process_rejection_reason(message):
     chat_id = message.chat.id
@@ -567,19 +542,31 @@ def process_rejection_reason(message):
     reason = message.text.strip()
     safe_send_message(request["user_id"], f"❌ درخواستت رد شد.\n📝 دلیل: {reason}")
     bot.send_message(chat_id, "✅ درخواست با موفقیت رد شد.", reply_markup=keyboard_markup)
+    
+    for admin_id, msg_id in request["admin_messages"].items():
+        try:
+            admin_id = message.chat.id
+            user_id = request["user_id"]
+
+            text = (
+                "❌ رد شد توسط ادمین\n\n"
+                f"ایدی ادمین: {admin_id}\n"
+                f"ایدی کاربر: {user_id}\n"
+                f" دلیل: {reason}\n\n"
+                f"{request['message']}"
+            )
+
+            bot.edit_message_text(
+                text,
+                chat_id=admin_id,
+                message_id=msg_id,
+                reply_markup=None
+            )
+        except Exception:
+            pass
 
     if request in pending_requests:
         pending_requests.remove(request)
 
-
-
-def safe_send_message(chat_id, text, **kwargs):
-    try:
-        bot.send_message(chat_id, text, **kwargs)
-    except telebot.apihelper.ApiTelegramException as e:
-        if "Forbidden: bot was blocked by the user" in str(e):
-            print(f"❌ کاربر {chat_id} ربات رو بلاک کرده.")
-        else:
-            print(f"⚠️ خطا در ارسال پیام به {chat_id}: {e}")
-
-bot.infinity_polling()
+if __name__ == '__main__':
+    bot.infinity_polling()

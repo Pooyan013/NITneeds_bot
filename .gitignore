@@ -1,3 +1,6 @@
 /venv
 hash.py
 users.db
+/__pycache__
+Run.txt
+users_new.db
