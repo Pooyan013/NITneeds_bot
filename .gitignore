@@ -1,6 +1,9 @@
-/venv
-hash.py
-users.db
-/__pycache__
+__pycache__/
+*.pyc
+.env
+*.db
+.venv/
+venv/
 Run.txt
-users_new.db
+bot/content/faculty_contacts.py
+user.db
