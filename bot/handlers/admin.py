@@ -83,10 +83,28 @@ def _requester_display_name(request: dict) -> str:
     return f"@{request['username']}" if request["username"] else str(request["user_id"])
 
 
+def _can_manage_request(user_id: int, request: dict) -> bool:
+    if request["hashtag"] == "#فرصت_شغلی":
+        return user_id == JOB_ADMIN_ID
+    return user_id in ADMIN_IDS
+
+
 @bot.callback_query_handler(func=lambda call: call.data.startswith("accept_") or call.data.startswith("reject_"))
 def handle_admin_action(call):
     action, request_id = call.data.split("_", 1)
     request = next((r for r in pending_requests if r["request_id"] == request_id), None)
+
+    if request and not _can_manage_request(call.from_user.id, request):
+        bot.answer_callback_query(call.id, "⛔ فقط ادمین مجاز می‌تواند این درخواست را مدیریت کند.")
+        return
+
+    if request and request["approved"]:
+        bot.answer_callback_query(call.id, "این درخواست قبلاً تأیید شده است.")
+        return
+
+    if call.from_user.id not in ADMIN_IDS and call.from_user.id != JOB_ADMIN_ID:
+        bot.answer_callback_query(call.id, "شما دسترسی مدیریت درخواست‌ها را ندارید.", show_alert=True)
+        return
 
     if not request:
         bot.answer_callback_query(call.id, "❗ درخواست پیدا نشد یا قبلاً رسیدگی شده.")
@@ -108,6 +126,10 @@ def handle_admin_action(call):
 
 
 def _approve_request(request: dict, admin_user, chat_id: int) -> None:
+    if request["approved"]:
+        return
+    request["approved"] = True
+
     for admin_chat_id, msg_id in request["admin_messages"].items():
         try:
             text = (
@@ -120,7 +142,13 @@ def _approve_request(request: dict, admin_user, chat_id: int) -> None:
         except Exception:
             logger.exception("Failed to update admin message %s", msg_id)
 
-    bot.send_message(CHANNEL_USERNAME, f"{request['message']}\n")
+    try:
+        bot.send_message(CHANNEL_USERNAME, f"{request['message']}\n")
+    except Exception:
+        request["approved"] = False
+        logger.exception("Failed to publish request %s", request["request_id"])
+        bot.send_message(chat_id, "❌ انتشار درخواست در کانال ناموفق بود؛ لطفاً دوباره تلاش کنید.")
+        return
     safe_send_message(request["user_id"], "✅ درخواستت تایید شد و در کانال منتشر شد.")
     bot.send_message(chat_id, "✅ درخواست با موفقیت تایید شد.", reply_markup=main_menu)
 
@@ -139,6 +167,11 @@ def _process_rejection_reason(message):
     request = next((r for r in pending_requests if r["request_id"] == state["request_id"]), None)
     if not request:
         bot.send_message(chat_id, "❗ درخواست پیدا نشد یا قبلاً رسیدگی شده.")
+        return
+
+    if not message.text or not message.text.strip():
+        bot.send_message(chat_id, "لطفاً دلیل رد را به‌صورت متنی ارسال کنید.")
+        user_states[chat_id] = state
         return
 
     reason = message.text.strip()

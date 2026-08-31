@@ -1,5 +1,10 @@
 from bot.bot_instance import bot
-from bot.content import faculty_contacts, texts
+try:
+    from bot.content import faculty_contacts
+except ImportError:
+    from bot.content import faculty_contacts_public as faculty_contacts
+
+from bot.content import texts
 from bot.handlers.requests import handle_request
 from bot.handlers.subscription import is_channel_member, send_subscription_prompt
 from bot.keyboards import back_menu, faculty_menu, home_menu, main_menu

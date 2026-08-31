@@ -3,7 +3,8 @@ __pycache__/
 .env
 *.db
 .venv/
-venv/
+Venv/
+data/
 Run.txt
 bot/content/faculty_contacts.py
 user.db

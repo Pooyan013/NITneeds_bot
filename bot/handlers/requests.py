@@ -28,6 +28,23 @@ def safe_send_message(chat_id, text, **kwargs) -> None:
         logger.exception("Failed to send message to %s", chat_id)
 
 
+def build_request(message, hashtag: str) -> dict:
+    """Build the in-memory request record from a Telegram text message."""
+    user_message = message.text.strip()
+    final_message = f"❓{user_message}" if hashtag == "#درخواستی" else f"{hashtag}\n{user_message}"
+    return {
+        "request_id": str(uuid.uuid4()),
+        "user_id": message.chat.id,
+        "message": final_message,
+        "hashtag": hashtag,
+        "approved": False,
+        "user_message_id": message.message_id,
+        "username": message.from_user.username,
+        "full_name": f"{message.from_user.first_name} {message.from_user.last_name or ''}",
+        "admin_messages": {},
+    }
+
+
 def _timeout_message(chat_id: int) -> None:
     if chat_id in user_states:
         del user_states[chat_id]
@@ -85,6 +102,10 @@ def handle_request(message, hashtag: str, instruction_text: str) -> None:
 def process_user_message(message):
     chat_id = int(message.chat.id)
 
+    if not message.text or not message.text.strip():
+        bot.send_message(chat_id, "لطفاً متن درخواست را ارسال کنید.", reply_markup=back_menu)
+        return
+
     if chat_id not in ADMIN_IDS:
         allowed, count_or_days = rate_limit.can_send_request(chat_id)
         if not allowed:
@@ -108,23 +129,10 @@ def process_user_message(message):
         bot.send_message(chat_id, "⛔ شما قبلاً یک درخواست ارسال کردید که هنوز بررسی نشده.")
         return
 
-    user_message = message.text
-    final_message = f"❓{user_message}" if hashtag == "#درخواستی" else f"{hashtag}\n{user_message}"
-    request_id = str(uuid.uuid4())
-
-    pending_requests.append(
-        {
-            "request_id": request_id,
-            "user_id": chat_id,
-            "message": final_message,
-            "hashtag": hashtag,
-            "approved": False,
-            "user_message_id": message.message_id,
-            "username": message.from_user.username,
-            "full_name": f"{message.from_user.first_name} {message.from_user.last_name or ''}",
-            "admin_messages": {},
-        }
-    )
+    request = build_request(message, hashtag)
+    pending_requests.append(request)
+    request_id = request["request_id"]
+    final_message = request["message"]
 
     if chat_id not in ADMIN_IDS:
         rate_limit.register_request(chat_id)
@@ -157,6 +165,6 @@ def process_user_message(message):
             sent_msg = bot.send_message(
                 admin_id, f"{sender_info}\n\nدرخواست جدید:\n{final_message}", reply_markup=markup
             )
-            pending_requests[-1]["admin_messages"][admin_id] = sent_msg.message_id
+            request["admin_messages"][admin_id] = sent_msg.message_id
         except Exception:
             logger.exception("Failed to notify admin %s about request %s", admin_id, request_id)

@@ -2,9 +2,10 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-COPY requierment.txt .
-RUN pip install --no-cache-dir -r requierment.txt
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
 
-COPY bot/. /bot
+COPY bot ./bot
+COPY main.py .
 
-CMD [ "python", "bot/main.py" ]
+CMD [ "python", "main.py" ]
