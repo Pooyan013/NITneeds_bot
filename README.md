@@ -12,9 +12,7 @@ The bot has been running in production for nearly two years and is used by real 
 
 Here is a short video showing the main user flow, from joining the channel and submitting a request to admin review and publication:
 
-<a href="YOUR_DEMO_VIDEO_URL">
-  <img src="docs/bot-preview.png" alt="Watch the NIT Needs Bot demo" width="720">
-</a>
+<img src="docs/DemoPic.png" alt="Watch the NIT Needs Bot demo" width="720">
 
 ## What the bot does
 
