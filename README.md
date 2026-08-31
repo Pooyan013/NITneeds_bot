@@ -1,25 +1,84 @@
 # NIT Needs Bot
 
-ربات تلگرامی نیازمندی‌های دانشجویان دانشگاه صنعتی نوشیروانی بابل؛ شامل ثبت آگهی فروش، درخواست، گمشده و پیدا‌شده، هم‌خانه و فرصت شغلی، با تأیید ادمین پیش از انتشار در کانال.
+![NIT Needs Bot](docs/bot-preview.png)
 
-## امکانات
+NIT Needs is a Telegram bot built for the student community of Babol Noshirvani University of Technology.
 
-- ثبت درخواست متنی و ارسال آن برای صف بررسی ادمین
-- تأیید یا رد درخواست با امکان ارسال دلیل رد به کاربر
-- الزام عضویت در کانال برای امکانات مشخص
-- محدودیت تعداد درخواست در بازه‌ی زمانی و فاصله‌ی زمانی بین درخواست‌ها
-- ارسال broadcast متنی، تصویری یا ویدیویی برای کاربران ثبت‌شده
-- نمایش اطلاعات گروه‌های آموزشی
-- اجرای محلی یا Docker Compose
+It helps students share and find everyday needs in one place: items for sale, lost and found posts, roommate requests, job opportunities, questions, and more.
 
-## نیازمندی‌ها
+The bot has been running in production for nearly two years and is used by real students on a daily basis. This repository contains the refactored and cleaned-up version of the project, prepared as a portfolio piece.
 
-- Python 3.11 یا بالاتر
-- یک Bot Token از BotFather
-- دسترسی ادمین ربات به کانال مقصد برای انتشار درخواست‌ها
-- دسترسی ربات به اطلاعات عضویت کانال برای بررسی عضویت کاربران
+## Demo
 
-## اجرای محلی
+Here is a short video showing the main user flow, from joining the channel and submitting a request to admin review and publication:
+
+<a href="YOUR_DEMO_VIDEO_URL">
+  <img src="docs/bot-preview.png" alt="Watch the NIT Needs Bot demo" width="720">
+</a>
+
+## What the bot does
+
+- Lets users submit posts through a simple button-based menu
+- Sends submitted posts to admins for review
+- Allows admins to approve or reject posts
+- Sends rejection feedback back to the original user
+- Publishes approved posts to the public Telegram channel
+- Requires channel membership for selected features
+- Applies per-user request limits and a cooldown between submissions
+- Provides a faculty contact directory
+- Supports admin broadcasts with text, photos, and videos
+
+## Request flow
+
+```text
+User selects a category
+          ↓
+Bot collects the request
+          ↓
+Admins review the request
+       ↙       ↘
+   Rejected    Approved
+      ↓           ↓
+ User gets    Published in
+ feedback     the channel
+```
+
+## Tech stack
+
+- Python 3.11+
+- pyTelegramBotAPI
+- SQLAlchemy
+- SQLite
+- python-dotenv
+- Docker and Docker Compose
+
+## Project structure
+
+```text
+main.py                         # Application entry point
+bot/
+├── config.py                   # Environment-based configuration
+├── bot_instance.py             # Shared Telegram bot instance
+├── db.py                       # Database setup
+├── models.py                   # SQLAlchemy models
+├── state.py                    # Runtime conversation state
+├── keyboards.py                # Telegram keyboards
+├── content/                    # Bot messages and contact data
+├── services/
+│   ├── users.py                # User persistence
+│   └── rate_limit.py           # Request limit handling
+└── handlers/
+    ├── start.py                # /start command
+    ├── menu.py                 # Main menu routing
+    ├── requests.py             # Request submission flow
+    ├── subscription.py         # Channel membership checks
+    └── admin.py                # Admin actions and broadcasts
+tests/                          # Unit tests
+Dockerfile
+docker-compose.yml
+```
+
+## Running locally
 
 ```bash
 python -m venv .venv
@@ -31,84 +90,73 @@ source .venv/bin/activate
 .venv\Scripts\Activate.ps1
 
 pip install -r requirements.txt
-copy .env.example .env        # در Linux/macOS: cp .env.example .env
+cp .env.example .env
 python main.py
 ```
 
-فایل `.env` را با مقادیر واقعی تکمیل کنید. این فایل نباید commit شود.
+On Windows, use `copy .env.example .env` instead of `cp`.
 
-## اجرای Docker
+Set the required values in `.env` before starting the bot.
+
+## Running with Docker
 
 ```bash
-copy .env.example .env        # در Linux/macOS: cp .env.example .env
+cp .env.example .env
 docker compose up -d --build
 docker compose logs -f bot
 ```
 
-دیتابیس SQLite در مسیر `./data/users.db` روی میزبان ذخیره می‌شود و با recreate شدن کانتینر باقی می‌ماند.
+On Windows, use `copy .env.example .env` instead of `cp`.
 
-برای توقف:
+The SQLite database is stored in `./data/users.db`, so it survives container recreation.
 
-```bash
-docker compose down
-```
+## Configuration
 
-## تنظیمات محیطی
+| Variable                   | Description                                              | Default              |
+| -------------------------- | -------------------------------------------------------- | -------------------- |
+| `BOT_TOKEN`                | Telegram bot token from BotFather                        | Required             |
+| `CHANNEL_USERNAME`         | Public channel used for membership checks and publishing | `@nit_needs`         |
+| `DATABASE_URL`             | SQLAlchemy database URL                                  | `sqlite:///users.db` |
+| `JOB_ADMIN_ID`             | Admin responsible for job-post approvals                 | `0`                  |
+| `ADMIN_IDS`                | Comma-separated Telegram IDs of regular admins           | Empty                |
+| `BROADCAST_ADMIN_IDS`      | Admin IDs allowed to use `/broadcast`                    | Same as `ADMIN_IDS`  |
+| `RATE_LIMIT_PERIOD_DAYS`   | Length of the rolling request-limit window               | `90`                 |
+| `MAX_REQUESTS`             | Maximum requests per user in the window                  | `10`                 |
+| `REQUEST_COOLDOWN_SECONDS` | Minimum time between submissions                         | `100`                |
+| `REQUEST_TIMEOUT_SECONDS`  | Time allowed for completing a request                    | `120`                |
 
-| متغیر | اجباری | مقدار پیش‌فرض | توضیح |
-|---|---:|---|---|
-| `BOT_TOKEN` | بله | - | توکن ربات |
-| `CHANNEL_USERNAME` | خیر | `@nit_needs` | کانال مقصد |
-| `DATABASE_URL` | خیر | `sqlite:///users.db` | آدرس SQLAlchemy؛ Compose آن را به `/app/data/users.db` تنظیم می‌کند |
-| `JOB_ADMIN_ID` | خیر | `0` | شناسه ادمین بررسی فرصت‌های شغلی |
-| `ADMIN_IDS` | خیر | خالی | شناسه ادمین‌ها با جداکننده‌ی کاما |
-| `BROADCAST_ADMIN_IDS` | خیر | مقدار `ADMIN_IDS` | ادمین‌های مجاز برای `/broadcast` |
-| `RATE_LIMIT_PERIOD_DAYS` | خیر | `90` | طول بازه‌ی محدودیت |
-| `MAX_REQUESTS` | خیر | `10` | حداکثر درخواست در بازه |
-| `REQUEST_COOLDOWN_SECONDS` | خیر | `100` | فاصله‌ی حداقلی بین دو درخواست |
-| `REQUEST_TIMEOUT_SECONDS` | خیر | `120` | زمان انتظار برای متن درخواست |
+## Admin commands
 
-## اطلاعات تماس دانشکده‌ها
+- `/admin` — view pending requests
+- `/unlimit <user_id>` — remove a user's request limit
+- `/broadcast` — send a message to registered users
 
-فایل خصوصی `bot/content/faculty_contacts.py` در گیت commit نمی‌شود. در صورت نیاز، آن را از روی `faculty_contacts.example.py` بسازید و اطلاعات واقعی را وارد کنید. اگر فایل خصوصی وجود نداشته باشد، ربات از placeholder عمومی استفاده می‌کند.
+## Tests
 
-## دستورات ادمین
-
-- `/admin` نمایش درخواست‌های در انتظار بررسی
-- `/unlimit <user_id>` حذف محدودیت درخواست یک کاربر
-- `/broadcast` ارسال پیام به کاربران ثبت‌شده
-
-## تست‌ها
-
-وابستگی‌های توسعه را نصب و تست‌ها را اجرا کنید:
+Install the development dependencies and run the test suite:
 
 ```bash
 pip install -r requirements-dev.txt
 python -m pytest -q
 ```
 
-تست‌ها به Telegram API وصل نمی‌شوند و منطق rate limit و ساخت رکورد درخواست را بررسی می‌کنند.
+The tests run locally and do not send requests to the Telegram API.
 
-## ساختار پروژه
+## Contact data
 
-```text
-main.py
-bot/
-  config.py
-  db.py
-  models.py
-  state.py
-  content/
-  services/
-  handlers/
-tests/
-Dockerfile
-docker-compose.yml
-```
+The real faculty contact data is kept outside version control. A sample file is included as `bot/content/faculty_contacts.example.py`.
 
-## محدودیت‌های فعلی
+## Security
 
-- صف درخواست‌ها و state مکالمه در حافظه نگه‌داری می‌شوند و با restart از بین می‌روند.
-- اجرای چند worker هم‌زمان بدون انتقال state به Redis یا دیتابیس توصیه نمی‌شود.
-- چهار گزینه‌ی دانشکده (`مکانیک`، `عمران`، `شیمی` و `صنایع و مواد`) هنوز محتوای اختصاصی ندارند.
-- برای بار هم‌زمان بالا، استفاده از PostgreSQL به‌جای SQLite مناسب‌تر است.
+The public bot username and demo media are safe to include in this repository. Before publishing screenshots or videos, make sure they do not reveal:
+
+- `BOT_TOKEN` or the contents of `.env`
+- Private admin IDs or internal configuration
+- Real phone numbers or email addresses that should remain private
+- Usernames, messages, or other personal information without permission
+
+The bot token should only exist in `.env` or in the deployment environment and must never be committed to Git.
+
+## License
+
+MIT
