@@ -100,6 +100,7 @@ def handle_request(message, hashtag: str, instruction_text: str) -> None:
     and user_states[message.chat.id]["state"] == "waiting_for_message"
 )
 def process_user_message(message):
+    started_at = time.perf_counter()
     chat_id = int(message.chat.id)
 
     if not message.text or not message.text.strip():
@@ -107,7 +108,13 @@ def process_user_message(message):
         return
 
     if chat_id not in ADMIN_IDS:
+        rate_limit_started_at = time.perf_counter()
         allowed, count_or_days = rate_limit.can_send_request(chat_id)
+        logger.info(
+            "Rate-limit check user_id=%s duration=%.3fs",
+            chat_id,
+            time.perf_counter() - rate_limit_started_at,
+        )
         if not allowed:
             bot.send_message(
                 chat_id,
@@ -135,7 +142,13 @@ def process_user_message(message):
     final_message = request["message"]
 
     if chat_id not in ADMIN_IDS:
+        persist_started_at = time.perf_counter()
         rate_limit.register_request(chat_id)
+        logger.info(
+            "Rate-limit persistence user_id=%s duration=%.3fs",
+            chat_id,
+            time.perf_counter() - persist_started_at,
+        )
         remaining = rate_limit.remaining_requests(chat_id)
         bot.send_message(
             chat_id,
@@ -155,6 +168,7 @@ def process_user_message(message):
         else f"👤 فرستنده: {message.from_user.first_name} {message.from_user.last_name or ''}"
     )
 
+    admin_notifications_started_at = time.perf_counter()
     for admin_id in target_admins:
         try:
             markup = InlineKeyboardMarkup()
@@ -168,3 +182,16 @@ def process_user_message(message):
             request["admin_messages"][admin_id] = sent_msg.message_id
         except Exception:
             logger.exception("Failed to notify admin %s about request %s", admin_id, request_id)
+
+    logger.info(
+        "Admin notifications request_id=%s admins=%d duration=%.3fs",
+        request_id,
+        len(target_admins),
+        time.perf_counter() - admin_notifications_started_at,
+    )
+    logger.info(
+        "Total request processing request_id=%s user_id=%s duration=%.3fs",
+        request_id,
+        chat_id,
+        time.perf_counter() - started_at,
+    )

@@ -122,6 +122,7 @@ The SQLite database is stored in `./data/users.db`, so it survives container rec
 | `MAX_REQUESTS`             | Maximum requests per user in the window                  | `10`                 |
 | `REQUEST_COOLDOWN_SECONDS` | Minimum time between submissions                         | `100`                |
 | `REQUEST_TIMEOUT_SECONDS`  | Time allowed for completing a request                    | `120`                |
+| `MEMBERSHIP_CACHE_TTL_SECONDS` | How long channel-membership results are cached       | `300`                |
 
 ## Admin commands
 

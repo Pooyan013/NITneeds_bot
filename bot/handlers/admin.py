@@ -1,4 +1,4 @@
-import logging
+﻿import logging
 import time
 
 from telebot.types import InlineKeyboardButton, InlineKeyboardMarkup
@@ -12,7 +12,6 @@ from bot.services.users import get_all_users
 from bot.state import pending_requests, user_states
 
 logger = logging.getLogger(__name__)
-
 
 @bot.message_handler(commands=["admin"])
 def admin_panel(message):
@@ -91,6 +90,11 @@ def _can_manage_request(user_id: int, request: dict) -> bool:
 
 @bot.callback_query_handler(func=lambda call: call.data.startswith("accept_") or call.data.startswith("reject_"))
 def handle_admin_action(call):
+    logger.info(
+        "Admin callback received: user_id=%s data=%s",
+        call.from_user.id,
+        call.data,
+    )
     action, request_id = call.data.split("_", 1)
     request = next((r for r in pending_requests if r["request_id"] == request_id), None)
 
@@ -115,6 +119,7 @@ def handle_admin_action(call):
         return
 
     chat_id = call.message.chat.id
+    bot.answer_callback_query(call.id, "درخواست در حال پردازش است...")
 
     if action == "accept":
         _approve_request(request, call.from_user, chat_id)
@@ -193,3 +198,4 @@ def _process_rejection_reason(message):
 
     if request in pending_requests:
         pending_requests.remove(request)
+
