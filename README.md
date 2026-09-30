@@ -1,7 +1,5 @@
 # NIT Needs Bot
 
-![NIT Needs Bot](docs/bot-preview.png)
-
 NIT Needs is a Telegram bot built for the student community of Babol Noshirvani University of Technology.
 
 It helps students share and find everyday needs in one place: items for sale, lost and found posts, roommate requests, job opportunities, questions, and more.
