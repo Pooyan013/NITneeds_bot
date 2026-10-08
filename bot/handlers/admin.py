@@ -111,6 +111,11 @@ def handle_admin_action(call):
         return
 
     if not request:
+        logger.warning(
+            "Callback references missing request: user_id=%s data=%s",
+            call.from_user.id,
+            call.data,
+        )
         bot.answer_callback_query(call.id, "❗ درخواست پیدا نشد یا قبلاً رسیدگی شده.")
         return
 

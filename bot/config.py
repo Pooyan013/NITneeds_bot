@@ -1,4 +1,4 @@
-﻿import os
+import os
 
 from dotenv import load_dotenv
 
@@ -32,5 +32,6 @@ MAX_REQUESTS = int(os.environ.get("MAX_REQUESTS", "10"))
 REQUEST_COOLDOWN_SECONDS = int(os.environ.get("REQUEST_COOLDOWN_SECONDS", "100"))
 REQUEST_TIMEOUT_SECONDS = int(os.environ.get("REQUEST_TIMEOUT_SECONDS", "120"))
 MEMBERSHIP_CACHE_TTL_SECONDS = int(os.environ.get("MEMBERSHIP_CACHE_TTL_SECONDS", "300"))
+POLLING_RETRY_DELAY_SECONDS = int(os.environ.get("POLLING_RETRY_DELAY_SECONDS", "10"))
 
 

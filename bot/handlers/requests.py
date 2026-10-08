@@ -1,6 +1,7 @@
 import logging
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from threading import Timer
 
 from telebot.types import InlineKeyboardButton, InlineKeyboardMarkup
@@ -15,6 +16,11 @@ from bot.state import last_request_times, pending_requests, timers, user_states
 
 logger = logging.getLogger(__name__)
 
+_notification_executor = ThreadPoolExecutor(
+    max_workers=4,
+    thread_name_prefix="admin-notify",
+)
+
 _LIMIT_EXPLANATION = (
     "💡محدودیت پیام‌های درخواستی فقط و فقط جهت جلوگیری از ترافیک پیام‌ها و ترغیب شما به "
     "جستجو در کانال قبل از ارسال درخواستی می‌باشد (بسیاری از درخواستی‌ها تکراری بوده و با "
@@ -22,11 +28,57 @@ _LIMIT_EXPLANATION = (
 )
 
 
+def timed_send_message(chat_id, text, *, operation: str, **kwargs):
+    """Send a Telegram message and record the network duration in the logs."""
+    started_at = time.perf_counter()
+    try:
+        return bot.send_message(chat_id, text, **kwargs)
+    finally:
+        logger.info(
+            "Telegram send operation=%s chat_id=%s duration=%.3fs",
+            operation,
+            chat_id,
+            time.perf_counter() - started_at,
+        )
+
+
 def safe_send_message(chat_id, text, **kwargs) -> None:
     try:
-        bot.send_message(chat_id, text, **kwargs)
+        timed_send_message(chat_id, text, operation="safe_send_message", **kwargs)
     except Exception:
         logger.exception("Failed to send message to %s", chat_id)
+
+
+def _notify_admins(request: dict, target_admins: list[int], sender_info: str) -> None:
+    """Notify each target admin independently so one failed chat does not block others."""
+    request_id = request["request_id"]
+    for admin_id in target_admins:
+        started_at = time.perf_counter()
+        try:
+            markup = InlineKeyboardMarkup()
+            markup.add(
+                InlineKeyboardButton("\u2705 \u062a\u0627\u06cc\u06cc\u062f", callback_data=f"accept_{request_id}"),
+                InlineKeyboardButton("\u274c \u0631\u062f", callback_data=f"reject_{request_id}"),
+            )
+            sent_msg = timed_send_message(
+                admin_id,
+                f"{sender_info}\n\n\u062f\u0631\u062e\u0648\u0627\u0633\u062a \u062c\u062f\u06cc\u062f:\n{request['message']}",
+                operation=f"admin_notification:{request_id}",
+                reply_markup=markup,
+            )
+            request["admin_messages"][admin_id] = sent_msg.message_id
+            logger.info(
+                "Admin notification delivered request_id=%s admin_id=%s duration=%.3fs",
+                request_id,
+                admin_id,
+                time.perf_counter() - started_at,
+            )
+        except Exception:
+            logger.exception(
+                "Failed to notify admin %s about request %s",
+                admin_id,
+                request_id,
+            )
 
 
 def build_request(message, hashtag: str) -> dict:
@@ -141,7 +193,6 @@ def process_user_message(message):
     request = build_request(message, hashtag)
     pending_requests.append(request)
     request_id = request["request_id"]
-    final_message = request["message"]
 
     if chat_id not in ADMIN_IDS:
         persist_started_at = time.perf_counter()
@@ -152,10 +203,11 @@ def process_user_message(message):
             time.perf_counter() - persist_started_at,
         )
         remaining = rate_limit.remaining_requests(chat_id)
-        bot.send_message(
+        timed_send_message(
             chat_id,
             f"✅ درخواست شما ثبت شد و پس از تایید در کانال قرار خواهد گرفت.\n"
             f"تعداد درخواست‌های باقی‌مانده شما: {remaining}\n\n{_LIMIT_EXPLANATION}",
+            operation="request_confirmation",
         )
 
     user_states.pop(chat_id, None)
@@ -170,26 +222,11 @@ def process_user_message(message):
         else f"👤 فرستنده: {message.from_user.first_name} {message.from_user.last_name or ''}"
     )
 
-    admin_notifications_started_at = time.perf_counter()
-    for admin_id in target_admins:
-        try:
-            markup = InlineKeyboardMarkup()
-            markup.add(
-                InlineKeyboardButton("✅ تایید", callback_data=f"accept_{request_id}"),
-                InlineKeyboardButton("❌ رد", callback_data=f"reject_{request_id}"),
-            )
-            sent_msg = bot.send_message(
-                admin_id, f"{sender_info}\n\nدرخواست جدید:\n{final_message}", reply_markup=markup
-            )
-            request["admin_messages"][admin_id] = sent_msg.message_id
-        except Exception:
-            logger.exception("Failed to notify admin %s about request %s", admin_id, request_id)
-
+    _notification_executor.submit(_notify_admins, request, target_admins, sender_info)
     logger.info(
-        "Admin notifications request_id=%s admins=%d duration=%.3fs",
+        "Admin notifications queued request_id=%s admins=%d",
         request_id,
         len(target_admins),
-        time.perf_counter() - admin_notifications_started_at,
     )
     logger.info(
         "Total request processing request_id=%s user_id=%s duration=%.3fs",
