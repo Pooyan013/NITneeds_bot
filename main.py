@@ -8,7 +8,9 @@ configure_logging()
 init_db()
 load_cache()
 
-from bot.handlers import admin, menu, requests, start, subscription  
+# Import handlers in an intentional order. `menu` has a catch-all text handler,
+# so command and stateful handlers must be registered before it can consume them.
+from bot.handlers import start, subscription, menu, admin, requests
 from bot.bot_instance import bot  
 
 logger = logging.getLogger(__name__)

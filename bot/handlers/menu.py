@@ -38,7 +38,19 @@ def back_to_main(message):
     bot.send_message(chat_id, "به صفحه اصلی بازگشتید.", reply_markup=main_menu)
 
 
-@bot.message_handler()
+def _should_route_text(message) -> bool:
+    """Route ordinary menu text, not commands or active form input."""
+    if not message.text or message.text.startswith("/"):
+        return False
+
+    state = user_states.get(message.chat.id)
+    return not state or state.get("state") not in {
+        "waiting_for_message",
+        "waiting_for_rejection_reason",
+    }
+
+
+@bot.message_handler(func=_should_route_text)
 def route_text(message):
     chat_id = message.chat.id
     text = message.text

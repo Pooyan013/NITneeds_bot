@@ -9,6 +9,7 @@ from bot.bot_instance import bot
 from bot.config import ADMIN_IDS, JOB_ADMIN_ID, REQUEST_COOLDOWN_SECONDS, REQUEST_TIMEOUT_SECONDS
 from bot.handlers.subscription import is_channel_member, send_subscription_prompt
 from bot.keyboards import back_menu, main_menu
+from bot.content.texts import BACK_BUTTON
 from bot.services import rate_limit
 from bot.state import last_request_times, pending_requests, timers, user_states
 
@@ -98,6 +99,7 @@ def handle_request(message, hashtag: str, instruction_text: str) -> None:
 @bot.message_handler(
     func=lambda message: message.chat.id in user_states
     and user_states[message.chat.id]["state"] == "waiting_for_message"
+    and message.text != BACK_BUTTON
 )
 def process_user_message(message):
     started_at = time.perf_counter()
